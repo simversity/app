@@ -105,7 +105,10 @@ app.use('/api/*', async (c, next) => {
   const ip = getClientIp(c);
   if (!checkReadRate(ip)) {
     setRateLimitHeaders(c, checkReadRate.info(ip));
-    return c.json({ error: 'Too many requests. Please try again later.' }, 429);
+    return c.json(
+      { error: 'Too many requests. Please wait a moment and try again.' },
+      429,
+    );
   }
   setRateLimitHeaders(c, checkReadRate.info(ip));
   return next();
@@ -181,7 +184,10 @@ app.post('/api/claim-role', requireAuth, async (c) => {
       { reason: 'rate_limited' },
       c.get('requestId'),
     );
-    return c.json({ error: 'Too many attempts. Please try again later.' }, 429);
+    return c.json(
+      { error: 'Too many requests. Please wait a moment and try again.' },
+      429,
+    );
   }
 
   const parsed = await parseBody(c, claimRoleSchema);

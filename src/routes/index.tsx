@@ -87,10 +87,7 @@ function Landing() {
               className="mt-6 text-4xl leading-[1.1] font-light tracking-tight sm:text-5xl lg:text-6xl"
               style={fraunces}
             >
-              Master the art of{' '}
-              <span className="italic font-normal text-teacher">teaching</span>{' '}
-              through{' '}
-              <span className="italic font-normal text-student">practice</span>
+              Teaching Simulator
             </h1>
 
             <p className="mt-6 max-w-lg text-base leading-relaxed text-muted-foreground sm:text-lg">
@@ -315,6 +312,7 @@ function Landing() {
             Simversity
           </span>
           <div className="flex items-center gap-4 text-xs text-muted-foreground/60">
+            <span>&copy; 2026 Simversity</span>
             <Link
               to="/privacy"
               className="hover:text-muted-foreground transition-colors"

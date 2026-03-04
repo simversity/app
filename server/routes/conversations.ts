@@ -152,7 +152,10 @@ conversationRoutes.get('/:id', async (c) => {
 conversationRoutes.patch('/:id/complete', async (c) => {
   const user = c.get('user');
   if (!checkConversationMutationRate(user.id)) {
-    return c.json({ error: 'Too many requests. Please try again later.' }, 429);
+    return c.json(
+      { error: 'Too many requests. Please wait a moment and try again.' },
+      429,
+    );
   }
   const parsed = parseUUID(c, 'id', 'conversation');
   if ('error' in parsed) return parsed.error;
@@ -238,7 +241,10 @@ conversationRoutes.patch('/:id/complete', async (c) => {
 conversationRoutes.patch('/:id/abandon', async (c) => {
   const user = c.get('user');
   if (!checkConversationMutationRate(user.id)) {
-    return c.json({ error: 'Too many requests. Please try again later.' }, 429);
+    return c.json(
+      { error: 'Too many requests. Please wait a moment and try again.' },
+      429,
+    );
   }
   const parsed = parseUUID(c, 'id', 'conversation');
   if ('error' in parsed) return parsed.error;

@@ -68,7 +68,10 @@ observerRoutes.post('/', async (c) => {
   const budget = checkDailyBudget;
 
   if (!checkObserverRateLimit(user.id)) {
-    return c.json({ error: 'Rate limit exceeded. Please slow down.' }, 429);
+    return c.json(
+      { error: 'Too many requests. Please wait a moment and try again.' },
+      429,
+    );
   }
   if (checkDailyBudget && !checkDailyBudget(user.id)) {
     return c.json(

@@ -22,7 +22,7 @@ export const auth = betterAuth({
         await sendEmail({
           to: user.email,
           subject: 'Reset your Simversity password',
-          text: `Click the link to reset your password: ${url}`,
+          text: `You're receiving this email because you requested a password reset for your Simversity account.\n\nClick the link below to reset your password:\n${url}\n\nIf you didn't request this, you can safely ignore this email.`,
         });
       } catch (err) {
         log.error(
@@ -79,7 +79,7 @@ export const auth = betterAuth({
         await sendEmail({
           to: user.email,
           subject: 'Verify your Simversity email',
-          text: `Click the link to verify your email: ${url}`,
+          text: `You're receiving this email because you created a Simversity account.\n\nClick the link below to verify your email address:\n${url}\n\nIf you didn't create this account, you can safely ignore this email.`,
         });
       } catch (err) {
         log.error(

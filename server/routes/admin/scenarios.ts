@@ -69,7 +69,7 @@ async function validateScenarioAgents(
   }
   if (!agents.some((a) => a.openingMessage?.trim())) {
     return {
-      error: 'At least one agent must have an opening message',
+      error: 'At least one student must have an opening message',
       status: 400,
     };
   }

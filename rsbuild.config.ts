@@ -15,7 +15,20 @@ export default defineConfig({
       description:
         'AI-powered teaching simulator for practicing responses to student misconceptions',
     },
+    templateParameters: {
+      htmlLang: 'en',
+    },
     tags: [
+      {
+        tag: 'link',
+        attrs: { rel: 'canonical', href: appUrl },
+        head: true,
+      },
+      {
+        tag: 'meta',
+        attrs: { property: 'og:site_name', content: 'Simversity' },
+        head: true,
+      },
       {
         tag: 'link',
         attrs: { rel: 'icon', type: 'image/png', href: '/favicon.png' },
@@ -59,6 +72,20 @@ export default defineConfig({
       {
         tag: 'meta',
         attrs: { name: 'twitter:card', content: 'summary_large_image' },
+        head: true,
+      },
+      {
+        tag: 'meta',
+        attrs: { name: 'twitter:title', content: 'Simversity' },
+        head: true,
+      },
+      {
+        tag: 'meta',
+        attrs: {
+          name: 'twitter:description',
+          content:
+            'AI-powered teaching simulator for practicing responses to student misconceptions',
+        },
         head: true,
       },
       {

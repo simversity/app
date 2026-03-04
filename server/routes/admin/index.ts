@@ -17,7 +17,10 @@ const checkAdminRateLimit = createRateLimiter(RATE_LIMIT_ADMIN);
 adminRoutes.use('*', async (c, next) => {
   const user = c.get('user');
   if (!checkAdminRateLimit(user.id)) {
-    return c.json({ error: 'Rate limit exceeded. Please slow down.' }, 429);
+    return c.json(
+      { error: 'Too many requests. Please wait a moment and try again.' },
+      429,
+    );
   }
   return next();
 });

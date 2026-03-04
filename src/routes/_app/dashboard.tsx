@@ -141,7 +141,7 @@ function Dashboard() {
             />
             <StatCard
               icon={BookOpen}
-              label="Total Exchanges"
+              label="Messages Sent"
               value={summary?.totalMessages ?? 0}
             />
           </div>

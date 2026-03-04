@@ -10,6 +10,8 @@ info:
     name: MIT
 
 servers:
+  - url: https://simversity.org
+    description: Production
   - url: http://localhost:3001
     description: Local development
 
