@@ -1,0 +1,224 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
+
+      - run: bun install --frozen-lockfile
+
+      - run: bun run type-check
+
+      - run: bun run lint
+
+      - run: bun run build
+
+      - name: Check bundle size budget
+        run: |
+          MAX_KB=1500
+          TOTAL=$(du -sk dist/static | cut -f1)
+          echo "Bundle size: ${TOTAL}KB (budget: ${MAX_KB}KB)"
+          if [ "$TOTAL" -gt "$MAX_KB" ]; then
+            echo "FAIL: Bundle exceeds ${MAX_KB}KB budget"
+            exit 1
+          fi
+
+      - run: bun run test:unit
+
+  test:
+    needs: check
+    runs-on: ubuntu-latest
+
+    env:
+      DATABASE_URL: sqlite.db
+      # WARNING: This secret is for CI only. Production deploys MUST use a
+      # unique random secret: openssl rand -hex 32
+      BETTER_AUTH_SECRET: ci-test-secret-do-not-use-in-production
+      BETTER_AUTH_URL: http://localhost:3001
+      APP_URL: http://localhost:3000
+      MOCK_AI: '1'
+      TEST_MODE: 1
+      ADMIN_INVITE_CODE: ci-admin-invite-code
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
+
+      - run: bun install --frozen-lockfile
+
+      - run: bunx playwright install --with-deps chromium firefox webkit
+
+      - name: Start mock AI server
+        run: bun server/ai/mock-server.ts &
+
+      - name: Wait for mock AI server
+        run: |
+          for i in $(seq 1 30); do
+            nc -z localhost 4100 && exit 0
+            sleep 0.2
+          done
+          echo "Mock AI server failed to start" && exit 1
+
+      - run: bun run test:e2e
+
+      - name: Report skipped E2E tests
+        if: ${{ !cancelled() }}
+        run: |
+          if [ ! -f playwright-results.json ]; then
+            echo "No Playwright JSON results found"
+            exit 0
+          fi
+          SKIPPED=$(python3 -c "
+          import json, sys
+          data = json.load(open('playwright-results.json'))
+          skipped = [s for suite in data.get('suites', [])
+                     for s in suite.get('specs', [])
+                     if any(t.get('status') == 'skipped' for t in s.get('tests', []))]
+          for s in skipped:
+              print(f\"  SKIP: {s['title']}\")
+          print(f'Total skipped: {len(skipped)}')
+          sys.exit(0)
+          ")
+          echo "$SKIPPED"
+          COUNT=$(echo "$SKIPPED" | tail -1 | grep -o '[0-9]*')
+          if [ "${COUNT:-0}" -gt 5 ]; then
+            echo "::warning::$COUNT E2E tests were skipped — review test prerequisites"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
+
+  docker:
+    needs: check
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - run: docker build --target runtime -t simversity:ci .
+
+  docs:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check skill file paths exist
+        run: |
+          grep -roh '`[^`]*\.\(ts\|tsx\|json\)`' docs/skills/ AGENTS.md | sort -u | tr -d '`' > /tmp/doc-paths.txt
+          failed=0
+          while read f; do
+            case "$f" in path/*|*/\*.*|*myfeature*|*'<'*|*.test.ts) continue ;; esac
+            [ -f "$f" ] || { echo "MISSING: $f"; failed=1; }
+          done < /tmp/doc-paths.txt
+          [ "$failed" -eq 0 ] || exit 1
+
+      - name: Check README commands match package.json
+        run: |
+          for cmd in dev dev:ui dev:api build preview db:push db:seed; do
+            python3 -c "import json; scripts=json.load(open('package.json'))['scripts']; exit(0 if '$cmd' in scripts else 1)" || { echo "MISSING: bun run $cmd"; exit 1; }
+          done
+
+      - name: Check key interfaces match between skills and source
+        run: |
+          # ScenarioDefinition: add-scenario.md vs server/ai/scenarios.ts
+          doc_fields=$(sed -n '/interface ScenarioDefinition/,/^}/p' docs/skills/add-scenario.md | grep -o '[a-zA-Z]*:' | sort)
+          src_fields=$(sed -n '/interface ScenarioDefinition/,/^}/p' server/ai/scenarios.ts | grep -o '[a-zA-Z]*:' | sort)
+          if [ "$doc_fields" != "$src_fields" ]; then
+            echo "DRIFT: ScenarioDefinition fields differ"
+            echo "  doc: $doc_fields"
+            echo "  src: $src_fields"
+            exit 1
+          fi
+          echo "OK: ScenarioDefinition"
+
+          # StreamingStatus: streaming-endpoint.md vs src/hooks/useStreamingChat.ts
+          doc_status=$(grep "type StreamingStatus" docs/skills/streaming-endpoint.md | head -1)
+          src_status=$(grep "type StreamingStatus" src/hooks/useStreamingChat.ts | head -1)
+          if [ -z "$src_status" ]; then
+            echo "SKIP: StreamingStatus not found in source (may have been renamed)"
+          elif [ "$doc_status" != "export $doc_status" ] 2>/dev/null && ! echo "$src_status" | grep -qF "$(echo "$doc_status" | sed 's/^type //')"; then
+            # Normalize: strip 'export ' from source, compare type definitions
+            src_norm=$(echo "$src_status" | sed 's/^export //')
+            if [ "$doc_status" != "$src_norm" ]; then
+              echo "DRIFT: StreamingStatus differs"
+              echo "  doc: $doc_status"
+              echo "  src: $src_norm"
+              exit 1
+            fi
+          fi
+          echo "OK: StreamingStatus"
+
+          # AppUser: auth.md vs server/lib/types.ts
+          doc_user=$(grep -A5 'type AppUser' docs/skills/auth.md | grep -o '[a-zA-Z]*:' | sort)
+          src_user=$(grep -A5 'type AppUser' server/lib/types.ts | grep -o '[a-zA-Z]*:' | sort)
+          if [ "$doc_user" != "$src_user" ]; then
+            echo "DRIFT: AppUser fields differ"
+            echo "  doc: $doc_user"
+            echo "  src: $src_user"
+            exit 1
+          fi
+          echo "OK: AppUser"
+
+      - name: Validate OpenAPI spec is well-formed YAML
+        run: python3 -c "import yaml; yaml.safe_load(open('docs/openapi.yaml'))"
+
+      - name: Check OpenAPI spec covers all route files
+        run: |
+          failed=0
+          for route in conversations observer courses progress models user; do
+            grep -q "/api/$route" docs/openapi.yaml || { echo "MISSING route: /api/$route"; failed=1; }
+          done
+          for admin in users access-codes courses scenarios personas; do
+            grep -q "/api/admin/$admin" docs/openapi.yaml || { echo "MISSING admin route: /api/admin/$admin"; failed=1; }
+          done
+          [ "$failed" -eq 0 ] || exit 1
+          echo "OK: All routes present in OpenAPI spec"
+
+      - name: Check NEAR AI endpoints exist in spec
+        run: |
+          [ -f nearai.json ] || { echo "SKIP: nearai.json not in repo"; exit 0; }
+          for ep in '/v1/chat/completions' '/v1/responses' '/v1/images/generations' '/v1/images/edits' '/v1/audio/transcriptions' '/v1/attestation/report'; do
+            python3 -c "import json; spec=json.load(open('nearai.json')); exit(0 if '$ep' in spec['paths'] else 1)" || { echo "MISSING: $ep"; exit 1; }
+          done
+
+  security:
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+
+      - uses: github/codeql-action/analyze@v3

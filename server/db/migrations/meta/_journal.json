@@ -1,0 +1,76 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1772382705472,
+      "tag": "0000_romantic_excalibur",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1772384485220,
+      "tag": "0001_high_matthew_murdock",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1772388526690,
+      "tag": "0002_flimsy_shaman",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1772389466834,
+      "tag": "0003_blue_wong",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1772393205468,
+      "tag": "0004_chubby_lockjaw",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1772395189899,
+      "tag": "0005_redundant_ultron",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1772505784085,
+      "tag": "0006_overjoyed_daredevil",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1772516260710,
+      "tag": "0007_overconfident_rogue",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1772517003471,
+      "tag": "0008_complete_roxanne_simpson",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1772572477035,
+      "tag": "0009_typical_blur",
+      "breakpoints": true
+    }
+  ]
+}

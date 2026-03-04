@@ -1,0 +1,1604 @@
+openapi: 3.1.0
+info:
+  title: Simversity API
+  version: 0.1.0
+  description: AI-powered teaching simulator API for practicing responses to student misconceptions.
+  contact:
+    name: Simversity
+    url: https://simversity.org
+  license:
+    name: MIT
+
+servers:
+  - url: http://localhost:3001
+    description: Local development
+
+tags:
+  - name: Auth
+    description: Authentication (handled by Better-Auth)
+  - name: Config
+    description: Public configuration endpoints
+  - name: Courses
+    description: Browse published courses and scenarios
+  - name: Conversations
+    description: Conversation lifecycle and messaging
+  - name: Observer
+    description: Observer feedback on conversations
+  - name: Progress
+    description: User progress tracking
+  - name: Models
+    description: Available AI models
+  - name: User
+    description: User profile management
+  - name: Admin - Users
+    description: Admin user management
+  - name: Admin - Access Codes
+    description: Admin invite code management
+  - name: Admin - Courses
+    description: Admin course CRUD
+  - name: Admin - Scenarios
+    description: Admin scenario CRUD
+  - name: Admin - Personas
+    description: Admin persona CRUD
+  - name: Health
+    description: Health and readiness checks
+
+paths:
+  /api/health:
+    get:
+      tags: [Health]
+      summary: Health check
+      description: Returns server and database connectivity status.
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [ok]
+                  ai:
+                    type: string
+                    enum: [ok, degraded, unreachable]
+                    description: AI provider connectivity status
+        "503":
+          description: Unhealthy or shutting down
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [error, shutting_down]
+                  detail:
+                    type: string
+
+  /api/config/registration:
+    get:
+      tags: [Config]
+      summary: Check registration config
+      description: Returns whether invite code registration is enabled.
+      responses:
+        "200":
+          description: Registration config
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  inviteCodeEnabled:
+                    type: boolean
+
+  /api/config/app:
+    get:
+      tags: [Config]
+      summary: Get app configuration
+      description: Returns server-authoritative configuration constants.
+      responses:
+        "200":
+          description: App config
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  maxMessageChars:
+                    type: integer
+                    example: 5000
+                  minMessagesToComplete:
+                    type: integer
+                    example: 5
+
+  /api/auth/{path}:
+    all:
+      tags: [Auth]
+      summary: Better-Auth endpoints
+      description: |
+        All authentication is handled by Better-Auth. Key endpoints include:
+        - `POST /api/auth/sign-up/email` — Register with email/password
+        - `POST /api/auth/sign-in/email` — Sign in
+        - `POST /api/auth/sign-out` — Sign out
+        - `GET /api/auth/get-session` — Get current session
+      parameters:
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+
+  /api/claim-role:
+    post:
+      tags: [Auth]
+      summary: Claim role via invite code
+      description: Redeem an invite code to upgrade user role to teacher or admin.
+      security:
+        - session: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [inviteCode]
+              properties:
+                inviteCode:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+      responses:
+        "200":
+          description: Role claimed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  role:
+                    type: string
+                    enum: [teacher, admin]
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          description: Invalid or expired code
+        "409":
+          description: Code already used
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /api/courses:
+    get:
+      tags: [Courses]
+      summary: List published courses
+      security:
+        - session: []
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/offset"
+      responses:
+        "200":
+          description: Paginated course list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  courses:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/CourseSummary"
+                  total:
+                    type: integer
+
+  /api/courses/{id}:
+    get:
+      tags: [Courses]
+      summary: Get course with scenarios
+      security:
+        - session: []
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200":
+          description: Course with scenarios
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  title:
+                    type: string
+                  description:
+                    type: string
+                  gradeLevel:
+                    type: string
+                  subject:
+                    type: string
+                  scenarioCount:
+                    type: integer
+                  visibility:
+                    type: string
+                    enum: [published]
+                  scenarios:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        courseId:
+                          type: string
+                          format: uuid
+                        title:
+                          type: string
+                        description:
+                          type: string
+                        sortOrder:
+                          type: integer
+                        studentName:
+                          type: string
+                        openingMessage:
+                          type: string
+                          nullable: true
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/conversations:
+    get:
+      tags: [Conversations]
+      summary: List user conversations
+      security:
+        - session: []
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/offset"
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, completed, abandoned]
+        - name: search
+          in: query
+          description: Filter by scenario title (partial match)
+          schema:
+            type: string
+        - name: from
+          in: query
+          description: Filter conversations started on or after this date (YYYY-MM-DD)
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          description: Filter conversations started on or before this date (YYYY-MM-DD)
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Paginated conversation list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversations:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ConversationSummary"
+                  total:
+                    type: integer
+    post:
+      tags: [Conversations]
+      summary: Start new conversation
+      description: Creates a new conversation for a scenario and returns opening messages from student agents.
+      security:
+        - session: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [scenarioId]
+              properties:
+                scenarioId:
+                  type: string
+                  format: uuid
+      responses:
+        "201":
+          description: Conversation created with opening messages
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversation:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      userId:
+                        type: string
+                        format: uuid
+                      scenarioId:
+                        type: string
+                        format: uuid
+                      status:
+                        type: string
+                        enum: [active]
+                      messageCount:
+                        type: integer
+                  messages:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        conversationId:
+                          type: string
+                          format: uuid
+                        role:
+                          type: string
+                          enum: [assistant]
+                        content:
+                          type: string
+                        agentId:
+                          type: string
+                          format: uuid
+                          nullable: true
+                        sortOrder:
+                          type: integer
+                        agentName:
+                          type: string
+                          nullable: true
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /api/conversations/{id}:
+    get:
+      tags: [Conversations]
+      summary: Get conversation with messages
+      security:
+        - session: []
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200":
+          description: Full conversation with messages and scenario
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  userId:
+                    type: string
+                    format: uuid
+                  scenarioId:
+                    type: string
+                    format: uuid
+                  status:
+                    type: string
+                    enum: [active, completed, abandoned]
+                  messageCount:
+                    type: integer
+                  startedAt:
+                    type: string
+                    format: date-time
+                  completedAt:
+                    type: string
+                    format: date-time
+                    nullable: true
+                  updatedAt:
+                    type: string
+                    format: date-time
+                  messages:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        role:
+                          type: string
+                          enum: [user, assistant]
+                        content:
+                          type: string
+                        sortOrder:
+                          type: integer
+                        agentId:
+                          type: string
+                          format: uuid
+                          nullable: true
+                        createdAt:
+                          type: string
+                          format: date-time
+                        agent:
+                          type: object
+                          nullable: true
+                          properties:
+                            name:
+                              type: string
+                  scenario:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      title:
+                        type: string
+                      description:
+                        type: string
+                      courseId:
+                        type: string
+                        format: uuid
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/conversations/{id}/messages:
+    post:
+      tags: [Conversations]
+      summary: Send message to student
+      description: Sends a teacher message and streams student agent response(s) via SSE.
+      security:
+        - session: []
+      parameters:
+        - $ref: "#/components/parameters/id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                content:
+                  type: string
+                  maxLength: 5000
+      responses:
+        "200":
+          description: SSE stream of student response chunks
+          content:
+            text/event-stream:
+              schema:
+                $ref: "#/components/schemas/SSEEvent"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /api/conversations/{id}/complete:
+    patch:
+      tags: [Conversations]
+      summary: Mark conversation as complete
+      description: Requires at least 5 messages (2 full exchanges + opening).
+      security:
+        - session: []
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200":
+          description: Conversation completed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+        "400":
+          description: Too few messages to complete
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Conversation is not active
+
+  /api/conversations/{id}/abandon:
+    patch:
+      tags: [Conversations]
+      summary: Abandon conversation
+      security:
+        - session: []
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200":
+          description: Conversation abandoned
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Conversation is not active
+
+  /api/conversations/{id}/observer:
+    get:
+      tags: [Observer]
+      summary: Get observer messages
+      security:
+        - session: []
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200":
+          description: Observer feedback messages
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  messages:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ObserverMessage"
+    post:
+      tags: [Observer]
+      summary: Generate observer feedback
+      description: Streams observer feedback via SSE. Allowed on active and completed conversations.
+      security:
+        - session: []
+      parameters:
+        - $ref: "#/components/parameters/id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                content:
+                  type: string
+                  minLength: 1
+                  maxLength: 5000
+                  description: Teacher's question or prompt for the observer
+      responses:
+        "200":
+          description: SSE stream of observer feedback
+          content:
+            text/event-stream:
+              schema:
+                $ref: "#/components/schemas/SSEEvent"
+        "409":
+          description: Cannot observe abandoned conversation
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /api/progress:
+    get:
+      tags: [Progress]
+      summary: Get user progress
+      security:
+        - session: []
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/offset"
+      responses:
+        "200":
+          description: Paginated progress records
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  progress:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ProgressRecord"
+                  total:
+                    type: integer
+
+  /api/progress/summary:
+    get:
+      tags: [Progress]
+      summary: Dashboard summary stats
+      description: Returns total conversations, scenarios practiced, messages sent, courses, and recent conversations.
+      security:
+        - session: []
+      responses:
+        "200":
+          description: Dashboard summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProgressSummary"
+
+  /api/models:
+    get:
+      tags: [Models]
+      summary: List available AI models
+      security:
+        - session: []
+      responses:
+        "200":
+          description: Available models from NEAR AI Cloud
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  models:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ModelInfo"
+
+  /api/user/profile:
+    get:
+      tags: [User]
+      summary: Get user profile
+      security:
+        - session: []
+      responses:
+        "200":
+          description: User profile
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  profile:
+                    $ref: "#/components/schemas/UserProfile"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [User]
+      summary: Update user profile
+      security:
+        - session: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+                gradeLevel:
+                  type: string
+                  maxLength: 100
+                  nullable: true
+                subjects:
+                  type: string
+                  maxLength: 1000
+                  nullable: true
+                experienceYears:
+                  type: integer
+                  minimum: 0
+                  maximum: 80
+                  nullable: true
+      responses:
+        "200":
+          description: Updated profile
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  profile:
+                    $ref: "#/components/schemas/UserProfile"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /api/admin/users:
+    get:
+      tags: [Admin - Users]
+      summary: List all users
+      security:
+        - session: []
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/offset"
+      responses:
+        "200":
+          description: Paginated user list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  users:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        name:
+                          type: string
+                        email:
+                          type: string
+                          format: email
+                        role:
+                          type: string
+                          enum: [teacher, admin, super_admin]
+                        createdAt:
+                          type: string
+                          format: date-time
+                  total:
+                    type: integer
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/admin/users/{id}/role:
+    patch:
+      tags: [Admin - Users]
+      summary: Change user role
+      description: Cannot change own role or super_admin role.
+      security:
+        - session: []
+      parameters:
+        - $ref: "#/components/parameters/id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role]
+              properties:
+                role:
+                  type: string
+                  enum: [teacher, admin]
+      responses:
+        "200":
+          description: Role updated
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/admin/access-codes:
+    get:
+      tags: [Admin - Access Codes]
+      summary: List access codes
+      description: Codes are masked (last 4 characters shown).
+      security:
+        - session: []
+      responses:
+        "200":
+          description: Access code list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  codes:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AccessCode"
+                  total:
+                    type: integer
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Admin - Access Codes]
+      summary: Create access code
+      security:
+        - session: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                role:
+                  type: string
+                  enum: [teacher, admin]
+                  default: teacher
+                expiresAt:
+                  type: string
+                  format: date-time
+                  nullable: true
+      responses:
+        "201":
+          description: Access code created (full code returned once)
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/admin/access-codes/{id}:
+    delete:
+      tags: [Admin - Access Codes]
+      summary: Delete access code
+      description: Only unused codes can be deleted.
+      security:
+        - session: []
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200":
+          description: Deleted
+        "409":
+          description: Code already used
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/admin/courses:
+    get:
+      tags: [Admin - Courses]
+      summary: List all courses (admin)
+      security:
+        - session: []
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/offset"
+      responses:
+        "200":
+          description: Paginated course list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  courses:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AdminCourse"
+                  total:
+                    type: integer
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Admin - Courses]
+      summary: Create course
+      security:
+        - session: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CourseInput"
+      responses:
+        "201":
+          description: Course created
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/admin/courses/{id}:
+    get:
+      tags: [Admin - Courses]
+      summary: Get course details (admin)
+      security:
+        - session: []
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200":
+          description: Course details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  course:
+                    $ref: "#/components/schemas/AdminCourse"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [Admin - Courses]
+      summary: Update course
+      security:
+        - session: []
+      parameters:
+        - $ref: "#/components/parameters/id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CourseInput"
+      responses:
+        "200":
+          description: Course updated
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [Admin - Courses]
+      summary: Archive course
+      description: Sets visibility to archived rather than deleting.
+      security:
+        - session: []
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200":
+          description: Course archived
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/admin/courses/{courseId}/scenarios:
+    get:
+      tags: [Admin - Scenarios]
+      summary: List scenarios for course
+      security:
+        - session: []
+      parameters:
+        - name: courseId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/offset"
+      responses:
+        "200":
+          description: Paginated scenario list with agents
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  scenarios:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        courseId:
+                          type: string
+                          format: uuid
+                        title:
+                          type: string
+                        description:
+                          type: string
+                        sortOrder:
+                          type: integer
+                        createdAt:
+                          type: string
+                          format: date-time
+                  total:
+                    type: integer
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Admin - Scenarios]
+      summary: Create scenario with agents
+      security:
+        - session: []
+      parameters:
+        - name: courseId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScenarioInput"
+      responses:
+        "201":
+          description: Scenario created
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/admin/scenarios/{id}:
+    get:
+      tags: [Admin - Scenarios]
+      summary: Get scenario with agents
+      security:
+        - session: []
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200":
+          description: Scenario with agents and personas
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [Admin - Scenarios]
+      summary: Update scenario
+      security:
+        - session: []
+      parameters:
+        - $ref: "#/components/parameters/id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScenarioInput"
+      responses:
+        "200":
+          description: Scenario updated
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [Admin - Scenarios]
+      summary: Delete scenario
+      description: Fails if conversations reference this scenario.
+      security:
+        - session: []
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200":
+          description: Scenario deleted
+        "400":
+          description: Scenario in use by conversations
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/admin/personas:
+    get:
+      tags: [Admin - Personas]
+      summary: List personas
+      security:
+        - session: []
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/offset"
+      responses:
+        "200":
+          description: Paginated persona list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  personas:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        name:
+                          type: string
+                        description:
+                          type: string
+                        createdAt:
+                          type: string
+                          format: date-time
+                  total:
+                    type: integer
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Admin - Personas]
+      summary: Create persona
+      security:
+        - session: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PersonaInput"
+      responses:
+        "201":
+          description: Persona created
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/admin/personas/{id}:
+    get:
+      tags: [Admin - Personas]
+      summary: Get persona
+      security:
+        - session: []
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200":
+          description: Persona details
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [Admin - Personas]
+      summary: Update persona
+      security:
+        - session: []
+      parameters:
+        - $ref: "#/components/parameters/id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PersonaInput"
+      responses:
+        "200":
+          description: Persona updated
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [Admin - Personas]
+      summary: Delete persona
+      description: Fails if persona is used in active scenarios.
+      security:
+        - session: []
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200":
+          description: Persona deleted
+        "400":
+          description: Persona in use by scenarios
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+components:
+  securitySchemes:
+    session:
+      type: apiKey
+      in: cookie
+      name: better-auth.session_token
+      description: Session cookie set by Better-Auth on sign-in
+
+  parameters:
+    id:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    limit:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    offset:
+      name: offset
+      in: query
+      schema:
+        type: integer
+        minimum: 0
+        default: 0
+
+  schemas:
+    CourseSummary:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        description:
+          type: string
+        gradeLevel:
+          type: string
+        subject:
+          type: string
+        scenarioCount:
+          type: integer
+        visibility:
+          type: string
+          enum: [private, shared, published, archived]
+
+    ConversationSummary:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        scenarioId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [active, completed, abandoned]
+        messageCount:
+          type: integer
+        startedAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+        updatedAt:
+          type: string
+          format: date-time
+        scenarioTitle:
+          type: string
+        studentName:
+          type: string
+          nullable: true
+        courseId:
+          type: string
+          format: uuid
+
+    ObserverMessage:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        role:
+          type: string
+          enum: [user, assistant]
+        content:
+          type: string
+        sortOrder:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+
+    UserProfile:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        role:
+          type: string
+          enum: [teacher, admin, super_admin]
+        gradeLevel:
+          type: string
+          nullable: true
+        subjects:
+          type: string
+          nullable: true
+        experienceYears:
+          type: integer
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+
+    ProgressSummary:
+      type: object
+      properties:
+        totalConversations:
+          type: integer
+        totalScenariosPracticed:
+          type: integer
+        totalMessages:
+          type: integer
+        totalCourses:
+          type: integer
+        recentConversations:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConversationSummary"
+
+    CourseInput:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description:
+          type: string
+          maxLength: 2000
+        gradeLevel:
+          type: string
+          maxLength: 100
+        subject:
+          type: string
+          maxLength: 100
+        visibility:
+          type: string
+          enum: [private, shared, published, archived]
+
+    ScenarioInput:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description:
+          type: string
+          maxLength: 2000
+        observerPrompt:
+          type: string
+          nullable: true
+        activityContext:
+          type: string
+          nullable: true
+        model:
+          type: string
+          nullable: true
+        observerModel:
+          type: string
+          nullable: true
+        sortOrder:
+          type: integer
+        agents:
+          type: array
+          items:
+            type: object
+            required: [personaId, openingMessage]
+            properties:
+              personaId:
+                type: string
+                format: uuid
+              openingMessage:
+                type: string
+              sortOrder:
+                type: integer
+
+    PersonaInput:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description:
+          type: string
+          maxLength: 2000
+        systemPrompt:
+          type: string
+
+    AdminCourse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        description:
+          type: string
+        gradeLevel:
+          type: string
+        subject:
+          type: string
+        scenarioCount:
+          type: integer
+        visibility:
+          type: string
+          enum: [private, shared, published, archived]
+        createdBy:
+          type: string
+          format: uuid
+          nullable: true
+        updatedBy:
+          type: string
+          format: uuid
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    AccessCode:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+          description: Masked code (last 4 characters shown)
+        role:
+          type: string
+          enum: [teacher, admin]
+        createdBy:
+          type: string
+          format: uuid
+        usedBy:
+          type: string
+          format: uuid
+          nullable: true
+        usedAt:
+          type: string
+          format: date-time
+          nullable: true
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+
+    ProgressRecord:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        courseId:
+          type: string
+          format: uuid
+        scenarioId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [not_started, in_progress, completed]
+        latestConversationId:
+          type: string
+          format: uuid
+          nullable: true
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    ModelInfo:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Model ID (e.g. "deepseek-ai/DeepSeek-V3.1")
+        label:
+          type: string
+          description: Display name (e.g. "DeepSeek V3.1")
+        context:
+          type: string
+          description: Context window size (e.g. "128K")
+        tier:
+          type: string
+          enum: ["$", "$$", "$$$"]
+          description: Pricing tier
+
+    SSEEvent:
+      description: |
+        Server-Sent Event payload. All events use `event: message` with JSON data.
+        The `type` field discriminates between event kinds.
+      oneOf:
+        - type: object
+          title: Delta
+          description: Streamed AI token chunk
+          required: [type, text]
+          properties:
+            type:
+              type: string
+              enum: [delta]
+            text:
+              type: string
+        - type: object
+          title: Done
+          description: Stream complete, response saved to DB
+          required: [type, messageId]
+          properties:
+            type:
+              type: string
+              enum: [done]
+            messageId:
+              type: string
+              format: uuid
+            agentId:
+              type: string
+              format: uuid
+              description: Present on conversation endpoints, absent on observer
+            agentName:
+              type: string
+              description: Present on conversation endpoints, absent on observer
+            truncated:
+              type: boolean
+              description: True when the model hit max_tokens
+        - type: object
+          title: Error
+          description: AI failure or save failure
+          required: [type, message]
+          properties:
+            type:
+              type: string
+              enum: [error]
+            message:
+              type: string
+      discriminator:
+        propertyName: type
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+
+  responses:
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Forbidden:
+      description: Insufficient permissions
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    RateLimited:
+      description: Rate limit exceeded
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"

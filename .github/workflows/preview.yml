@@ -1,0 +1,266 @@
+name: Preview Deploy
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+    branches: [main]
+
+# Cancel in-progress runs for the same PR when a new commit is pushed
+concurrency:
+  group: preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  # ── Determine if we should deploy ────────────────────────────────────
+  changes:
+    if: github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    outputs:
+      should_deploy: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            code:
+              - 'server/**'
+              - 'src/**'
+              - 'public/**'
+              - 'package.json'
+              - 'bun.lock'
+              - 'Dockerfile'
+              - 'docker-entrypoint.sh'
+              - 'rsbuild.config.ts'
+              - 'drizzle.config.ts'
+              - 'tsconfig*.json'
+              - 'postcss.config.mjs'
+
+  # ── Deploy preview environment ───────────────────────────────────────
+  deploy:
+    needs: changes
+    if: needs.changes.outputs.should_deploy == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+
+    env:
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      SERVICE_NAME: pr-${{ github.event.pull_request.number }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Railway CLI
+        run: |
+          curl -fsSL https://railway.com/install.sh | sh
+          echo "$HOME/.railway/bin" >> "$GITHUB_PATH"
+
+      - name: Create or link preview environment
+        id: env-setup
+        run: |
+          set -euo pipefail
+
+          ENV_NAME="pr-${PR_NUMBER}"
+
+          # List existing environments; create if missing
+          if railway environment --json 2>/dev/null | grep -q "\"name\":\"${ENV_NAME}\""; then
+            echo "Environment '${ENV_NAME}' already exists, reusing."
+          else
+            echo "Creating environment '${ENV_NAME}'..."
+            railway environment create "${ENV_NAME}"
+          fi
+
+          # Link to the PR environment
+          railway link --environment "${ENV_NAME}"
+
+          # Retrieve or generate a domain before deploying
+          DEPLOY_URL=""
+          DOMAIN=$(railway domain 2>/dev/null || true)
+          if [ -z "$DOMAIN" ]; then
+            DOMAIN=$(railway domain --generate 2>/dev/null || true)
+          fi
+
+          if [ -n "$DOMAIN" ]; then
+            DEPLOY_URL="https://${DOMAIN}"
+          else
+            DEPLOY_URL="(pending — check Railway dashboard)"
+          fi
+
+          echo "url=${DEPLOY_URL}" >> "$GITHUB_OUTPUT"
+          echo "env_name=${ENV_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Set environment variables
+        run: |
+          railway variables set \
+            MOCK_AI=1 \
+            TEST_MODE=1 \
+            BETTER_AUTH_SECRET=$(openssl rand -hex 32) \
+            BETTER_AUTH_URL="${{ steps.env-setup.outputs.url }}" \
+            APP_URL="${{ steps.env-setup.outputs.url }}" \
+            TRUST_PROXY=1 \
+            DATABASE_URL=/data/sqlite.db \
+            ADMIN_INVITE_CODE=preview-admin-code
+
+      - name: Deploy preview
+        id: deploy
+        run: |
+          # Deploy using the repo's Dockerfile
+          railway up --detach
+
+          # Pass through URL from env-setup for downstream steps
+          echo "url=${{ steps.env-setup.outputs.url }}" >> "$GITHUB_OUTPUT"
+          echo "env_name=${{ steps.env-setup.outputs.env_name }}" >> "$GITHUB_OUTPUT"
+
+      - name: Comment on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const marker = '<!-- railway-preview-bot -->';
+            const url = '${{ steps.deploy.outputs.url }}';
+            const sha = '${{ github.event.pull_request.head.sha }}'.slice(0, 7);
+            const envName = '${{ steps.deploy.outputs.env_name }}';
+
+            const body = [
+              marker,
+              '## Railway Preview Deployment',
+              '',
+              `| | |`,
+              `|---|---|`,
+              `| **URL** | ${url} |`,
+              `| **Environment** | \`${envName}\` |`,
+              `| **Commit** | \`${sha}\` |`,
+              `| **Mock AI** | Enabled (\`MOCK_AI=1\`) |`,
+              `| **Status** | Deploying... |`,
+              '',
+              '> This preview uses mock AI responses and test mode.',
+              '> It will be automatically cleaned up when the PR is closed or merged.',
+              '',
+              '_Updated: ' + new Date().toISOString() + '_',
+            ].join('\n');
+
+            // Find existing comment from this bot
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const existing = comments.find(c => c.body.includes(marker));
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+
+  # ── Skip notification ────────────────────────────────────────────────
+  skip:
+    needs: changes
+    if: needs.changes.outputs.should_deploy == 'false'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Comment that preview was skipped
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const marker = '<!-- railway-preview-bot -->';
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find(c => c.body.includes(marker));
+
+            // Only comment if there's no existing preview comment
+            // (don't spam on docs-only follow-up pushes)
+            if (!existing) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: [
+                  marker,
+                  '## Railway Preview Deployment',
+                  '',
+                  'Preview deployment **skipped** — no code changes detected (docs/config only).',
+                ].join('\n'),
+              });
+            }
+
+  # ── Cleanup on PR close/merge ────────────────────────────────────────
+  cleanup:
+    if: github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+
+    env:
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+
+    steps:
+      - name: Install Railway CLI
+        run: |
+          curl -fsSL https://railway.com/install.sh | sh
+          echo "$HOME/.railway/bin" >> "$GITHUB_PATH"
+
+      - name: Delete preview environment
+        run: |
+          set -euo pipefail
+
+          ENV_NAME="pr-${{ github.event.pull_request.number }}"
+
+          echo "Deleting preview environment '${ENV_NAME}'..."
+          railway environment delete "${ENV_NAME}" --yes 2>/dev/null || {
+            echo "Environment '${ENV_NAME}' not found or already deleted."
+          }
+
+      - name: Update PR comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const marker = '<!-- railway-preview-bot -->';
+            const merged = '${{ github.event.pull_request.merged }}' === 'true';
+            const action = merged ? 'merged' : 'closed';
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const existing = comments.find(c => c.body.includes(marker));
+
+            const body = [
+              marker,
+              '## Railway Preview Deployment',
+              '',
+              `Preview environment has been **removed** (PR ${action}).`,
+              '',
+              '_Cleaned up: ' + new Date().toISOString() + '_',
+            ].join('\n');
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            }
