@@ -48,7 +48,10 @@ messageRoutes.post('/', async (c) => {
   const user = c.get('user');
 
   if (!checkStartRate(user.id)) {
-    return c.json({ error: 'Rate limit exceeded. Please slow down.' }, 429);
+    return c.json(
+      { error: 'Too many requests. Please wait a moment and try again.' },
+      429,
+    );
   }
 
   const result = await parseBody(c, startConversationSchema);
@@ -158,7 +161,10 @@ messageRoutes.post('/:id/messages', async (c) => {
   const user = c.get('user');
 
   if (!checkRateLimit(user.id)) {
-    return c.json({ error: 'Rate limit exceeded. Please slow down.' }, 429);
+    return c.json(
+      { error: 'Too many requests. Please wait a moment and try again.' },
+      429,
+    );
   }
   if (checkDailyBudget && !checkDailyBudget(user.id)) {
     return c.json(

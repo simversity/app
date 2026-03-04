@@ -65,7 +65,7 @@ function Landing() {
             to="/register"
             className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
           >
-            Get started free
+            Get started
           </Link>
         </div>
       </nav>
@@ -80,24 +80,21 @@ function Landing() {
           >
             <div className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1 text-xs font-medium text-muted-foreground">
               <Sparkles className="h-3 w-3 text-student" />
-              AI-powered practice for educators
+              AI-powered training for educators
             </div>
 
             <h1
               className="mt-6 text-4xl leading-[1.1] font-light tracking-tight sm:text-5xl lg:text-6xl"
               style={fraunces}
             >
-              Master the art of{' '}
-              <span className="italic font-normal text-teacher">teaching</span>{' '}
-              through{' '}
-              <span className="italic font-normal text-student">practice</span>
+              Teaching Simulator
             </h1>
 
             <p className="mt-6 max-w-lg text-base leading-relaxed text-muted-foreground sm:text-lg">
-              Practice responding to students who hold real misconceptions — in
-              a safe space, before it happens in your classroom. Build the
-              pedagogical expertise that separates good teachers from great
-              ones.
+              Practice responding to students with real misconceptions — in a
+              safe space, before it happens in your classroom. Build the
+              pedagogical content knowledge that separates good teachers from
+              great ones.
             </p>
 
             <div className="mt-8 flex flex-wrap items-center gap-4">
@@ -105,7 +102,7 @@ function Landing() {
                 to="/register"
                 className="group inline-flex items-center gap-2 rounded-lg bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/10 transition-all hover:bg-primary/90 hover:shadow-xl hover:shadow-primary/15"
               >
-                Get started free
+                Get started
                 <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
               </Link>
               <a
@@ -192,7 +189,6 @@ function Landing() {
 
           <div className="relative mt-16 grid gap-8 sm:grid-cols-3 sm:gap-6">
             {/* Connecting line (desktop) */}
-            <div className="absolute left-0 right-0 top-10 hidden h-px bg-border sm:block" />
 
             <StepCard
               number={1}
@@ -205,13 +201,13 @@ function Landing() {
               number={2}
               icon={MessageSquare}
               title="Converse with a student"
-              description="Engage in a realistic back-and-forth with an AI student who holds a genuine misconception. They respond to your pedagogy."
+              description="Engage in discussions with AI students prompted to have common misconceptions."
               delay={150}
             />
             <StepCard
               number={3}
               icon={Eye}
-              title="Get expert feedback"
+              title="Get AI feedback"
               description="An observer analyzes your conversation and coaches you on what worked, what to try differently, and why — grounded in education research."
               delay={300}
             />
@@ -224,47 +220,46 @@ function Landing() {
         <div className="mx-auto max-w-5xl">
           <div className="text-center">
             <p className="text-sm font-semibold uppercase tracking-widest text-student">
-              Built for educators
+              Built by educators, for educators
             </p>
             <h2
               className="mt-3 text-3xl font-light tracking-tight sm:text-4xl"
               style={fraunces}
             >
-              Practice that feels real
+              Practice makes progress
             </h2>
             <p className="mx-auto mt-4 max-w-xl text-muted-foreground">
-              Every detail is designed to build authentic pedagogical content
-              knowledge — the specialized expertise that separates good teachers
-              from great ones.
+              Every interaction is designed to strengthen your pedagogical
+              content knowledge — so you're ready when it matters most.
             </p>
           </div>
 
           <div className="mt-14 grid gap-5 sm:grid-cols-2">
             <FeatureCard
               icon={Brain}
-              title="Realistic student personas"
-              description="Each AI student has a name, background, speech patterns, and a specific misconception with an origin story. They feel like real students because they're modeled on real misconceptions."
+              title="AI student personas"
+              description="Each scenario features AI students with specific misconceptions. They respond naturally to your teaching approach and push back when unconvinced."
               accent="teacher"
               delay={0}
             />
             <FeatureCard
               icon={Eye}
-              title="Research-grounded feedback"
-              description="An expert observer analyzes your teaching moves and gives specific, actionable coaching grounded in education research. No scores — just evidence-based insights to sharpen your practice."
+              title="Observer feedback"
+              description="An AI observer watches your conversation and offers qualitative feedback on your teaching moves — what worked, what to try differently, and why."
               accent="student"
               delay={100}
             />
             <FeatureCard
               icon={Sparkles}
-              title="Progress tracking"
-              description="See your practice history at a glance — conversations completed, scenarios explored, and past observer feedback to revisit anytime."
+              title="Track your progress"
+              description="See conversations completed, scenarios explored, and revisit past observer feedback from your dashboard."
               accent="student"
               delay={200}
             />
             <FeatureCard
               icon={BookOpen}
               title="Curated scenarios"
-              description="Misconception scenarios are designed by educators and grounded in research on common student misunderstandings. Each one targets a specific pedagogical challenge."
+              description="Scenarios are organized by course and topic, each targeting a specific misconception. New scenarios are added by your institution's admins."
               accent="teacher"
               delay={300}
             />
@@ -282,17 +277,16 @@ function Landing() {
             className="text-3xl font-light tracking-tight sm:text-4xl"
             style={fraunces}
           >
-            Ready to practice?
+            Ready to learn?
           </h2>
           <p className="mx-auto mt-4 max-w-md text-muted-foreground">
-            Every expert teacher started somewhere. Start building your teaching
-            practice today.
+            Test yourself.
           </p>
           <Link
             to="/register"
             className="group mt-8 inline-flex items-center gap-2 rounded-lg bg-primary px-8 py-3.5 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/10 transition-all hover:bg-primary/90 hover:shadow-xl hover:shadow-primary/15"
           >
-            Get started free
+            Get started
             <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
           </Link>
         </div>
@@ -315,6 +309,7 @@ function Landing() {
             Simversity
           </span>
           <div className="flex items-center gap-4 text-xs text-muted-foreground/60">
+            <span>&copy; 2026 Simversity</span>
             <Link
               to="/privacy"
               className="hover:text-muted-foreground transition-colors"

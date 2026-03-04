@@ -21,5 +21,4 @@ biome.json
 playwright.config.ts
 tsconfig.json
 tsconfig.server.json
-postcss.config.mjs
 components.json

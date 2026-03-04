@@ -71,8 +71,11 @@ function Register() {
                 await apiMutate('/api/claim-role', {
                   body: { inviteCode: inviteCode.trim() },
                 });
-                // Refetch session so the updated role is picked up immediately
-                await authClient.getSession({ fetchOptions: { throw: true } });
+                // Bust cookie cache so the updated role is picked up immediately
+                await authClient.getSession({
+                  query: { disableCookieCache: true },
+                  fetchOptions: { throw: true },
+                });
               } catch (claimErr) {
                 const msg =
                   claimErr instanceof Error ? claimErr.message : 'invalid code';
