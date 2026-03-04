@@ -1,0 +1,10 @@
+pre-commit:
+  commands:
+    lint:
+      glob: '**/*.{ts,tsx,js,jsx,json,css}'
+      run: bunx biome check --changed --no-errors-on-unmatched
+
+pre-push:
+  commands:
+    typecheck:
+      run: bun run type-check

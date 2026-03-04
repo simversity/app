@@ -1,0 +1,1 @@
+ALTER TABLE `scenario` ADD `observerMode` text DEFAULT 'panel';

@@ -1,0 +1,1 @@
+CREATE INDEX `idx_message_conversationId_sortOrder` ON `message` (`conversationId`,`sortOrder`);
