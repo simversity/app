@@ -161,8 +161,20 @@ async function streamAndSaveAIResponseInner(
         opts.abortController?.abort();
         return;
       }
-      const choice = chunk.choices[0];
-      const text = choice?.delta?.content;
+      const choice = chunk.choices?.[0];
+      if (!choice) {
+        if (chunks.length === 0) {
+          log.debug(
+            {
+              chunkKeys: Object.keys(chunk),
+              chunk: JSON.stringify(chunk).slice(0, 500),
+            },
+            'AI stream chunk without choices',
+          );
+        }
+        continue;
+      }
+      const text = choice.delta?.content;
       if (text) {
         responseChars += text.length;
         if (responseChars > MAX_RESPONSE_CHARS) {
