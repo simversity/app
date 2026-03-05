@@ -72,7 +72,7 @@ adminAccessCodeRoutes.post('/', async (c) => {
     { codeId: created.id, role },
     c.get('requestId'),
   );
-  return c.json({ code: created }, 201);
+  return c.json({ code: created.code }, 201);
 });
 
 adminAccessCodeRoutes.delete('/:id', async (c) => {
