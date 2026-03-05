@@ -16,13 +16,6 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { apiFetch, apiMutate } from '@/lib/api';
@@ -55,15 +48,14 @@ function AccessCodeManagement() {
   });
   const codes = data?.codes ?? [];
 
-  const [newRole, setNewRole] = useState<string>('teacher');
   const [revealedCode, setRevealedCode] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
   const createMutation = useMutation({
-    mutationFn: (role: string) =>
+    mutationFn: () =>
       apiMutate<{ code: string }>('/api/admin/access-codes', {
         method: 'POST',
-        body: { role },
+        body: {},
       }),
     onSuccess(result) {
       setRevealedCode(result.code);
@@ -109,28 +101,17 @@ function AccessCodeManagement() {
         <div>
           <h1 className="text-2xl font-bold">Access Codes</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Generate invite codes for new users
+            Generate invite codes for new admins
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Select value={newRole} onValueChange={setNewRole}>
-            <SelectTrigger className="w-28">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="teacher">Teacher</SelectItem>
-              <SelectItem value="admin">Admin</SelectItem>
-            </SelectContent>
-          </Select>
-          <Button
-            size="sm"
-            onClick={() => createMutation.mutate(newRole)}
-            disabled={createMutation.isPending}
-          >
-            <Plus className="mr-2 h-4 w-4" />
-            {createMutation.isPending ? 'Creating...' : 'New Code'}
-          </Button>
-        </div>
+        <Button
+          size="sm"
+          onClick={() => createMutation.mutate()}
+          disabled={createMutation.isPending}
+        >
+          <Plus className="mr-2 h-4 w-4" />
+          {createMutation.isPending ? 'Creating...' : 'New Code'}
+        </Button>
       </div>
 
       {(error || createMutation.error || deleteMutation.error) && (

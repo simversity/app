@@ -10,7 +10,6 @@ import type { AppEnv } from '../../lib/types';
 import { parseBody, parseUUID } from '../../lib/validation';
 
 const createAccessCodeSchema = z.object({
-  role: z.enum(['teacher', 'admin']).default('teacher'),
   expiresAt: z
     .string()
     .datetime({ message: 'expiresAt must be an ISO 8601 datetime string' })
@@ -43,7 +42,8 @@ adminAccessCodeRoutes.get('/', async (c) => {
 adminAccessCodeRoutes.post('/', async (c) => {
   const result = await parseBody(c, createAccessCodeSchema);
   if ('error' in result) return result.error;
-  const { role, expiresAt: expiresAtStr } = result.data;
+  const { expiresAt: expiresAtStr } = result.data;
+  const role = 'admin';
 
   const currentUser = c.get('user');
   const code = nanoid(12);

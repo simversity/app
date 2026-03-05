@@ -38,6 +38,10 @@ for attempt in $(seq 1 $MAX_RETRIES); do
   RETRY_DELAY=$((RETRY_DELAY * 2))
 done
 
+# ── Seed course data (idempotent upserts) ────────────────────────────
+echo "Seeding course data..."
+bun server/db/seed-prod.ts
+
 # ── Start server ─────────────────────────────────────────────────────
 echo "Starting server..."
 exec bun server/index.ts

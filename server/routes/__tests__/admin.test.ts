@@ -308,7 +308,7 @@ describe('Admin access code CRUD', () => {
     expect(body.codes[0].code).not.toContain('test-invite');
   });
 
-  test('POST creates access code with default teacher role', async () => {
+  test('POST creates access code with admin role', async () => {
     const res = await app.request(
       '/api/admin/access-codes',
       jsonPost({}, ADMIN),
@@ -317,18 +317,8 @@ describe('Admin access code CRUD', () => {
     const body = (await res.json()) as {
       code: { role: string; code: string };
     };
-    expect(body.code.role).toBe('teacher');
-    expect(body.code.code.length).toBeGreaterThan(0);
-  });
-
-  test('POST creates access code with admin role', async () => {
-    const res = await app.request(
-      '/api/admin/access-codes',
-      jsonPost({ role: 'admin' }, ADMIN),
-    );
-    expect(res.status).toBe(201);
-    const body = (await res.json()) as { code: { role: string } };
     expect(body.code.role).toBe('admin');
+    expect(body.code.code.length).toBeGreaterThan(0);
   });
 
   test('POST rejects past expiresAt', async () => {

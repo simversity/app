@@ -233,8 +233,7 @@ app.post('/api/claim-role', requireAuth, async (c) => {
 
     if (!code) return { error: 'Invalid invite code', status: 403 as const };
 
-    const allowedRoles = ['teacher', 'admin'] as const;
-    if (!allowedRoles.includes(code.role as (typeof allowedRoles)[number])) {
+    if (code.role !== 'admin') {
       return {
         error: 'Invalid access code configuration',
         status: 403 as const,
