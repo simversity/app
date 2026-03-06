@@ -247,10 +247,10 @@ describe('buildGroupContext', () => {
   test('filters active persona from other names list', () => {
     const prompt = 'You are Riley.';
     const result = buildGroupContext(prompt, agents, 'p1');
-    // "Riley" should not appear in the "other names" section
-    const groupSection = result.split('Group Context')[1];
-    expect(groupSection).toContain('Sam');
-    expect(groupSection).not.toContain('Riley');
+    // "Riley" should not appear in the "discussion with" line (peer names)
+    const discussionLine = result.match(/discussion with .+\./)?.[0] ?? '';
+    expect(discussionLine).toContain('Sam');
+    expect(discussionLine).not.toContain('Riley');
   });
 
   test('includes turn-taking section for multi-agent', () => {
@@ -276,8 +276,11 @@ describe('buildGroupContext', () => {
   test('lists multiple other names with three agents', () => {
     const threeAgents = [...agents, { personaId: 'p3', personaName: 'Alex' }];
     const result = buildGroupContext('Prompt.', threeAgents, 'p2');
-    expect(result).toContain('Riley, Alex');
-    expect(result).not.toContain('Sam');
+    // The "discussion with" line should list peers, not the active agent
+    const discussionLine = result.match(/discussion with .+\./)?.[0] ?? '';
+    expect(discussionLine).toContain('Riley');
+    expect(discussionLine).toContain('Alex');
+    expect(discussionLine).not.toContain('Sam');
   });
 });
 

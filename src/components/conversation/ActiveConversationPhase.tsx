@@ -143,6 +143,8 @@ export function ActiveConversationPhase({
               isStreaming={conv.status === 'streaming'}
               streamingLabel={streamingLabel}
               draftKey={conv.conversationId ?? undefined}
+              status={conv.status}
+              lastUserContent={conv.lastUserContent}
             />
           </div>
         </ChatFooter>
@@ -156,6 +158,7 @@ export function ActiveConversationPhase({
           initialized={observer.initialized}
           onSend={(text) => observer.sendMessage(text)}
           onClose={onCloseObserver}
+          lastUserContent={observer.lastUserContent}
         />
       )}
     </>

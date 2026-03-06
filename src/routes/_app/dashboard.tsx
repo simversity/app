@@ -111,6 +111,31 @@ function Dashboard() {
         </Card>
       )}
 
+      {/* Create Your Own Scenario */}
+      {!isPending && (
+        <Card className="mt-6 py-0">
+          <CardContent className="flex items-center gap-4 py-5">
+            <div className="rounded-lg bg-primary/10 p-2.5">
+              <Sparkles className="h-5 w-5 text-primary" />
+            </div>
+            <div className="flex-1">
+              <h3 className="text-sm font-semibold">
+                Create your own scenario
+              </h3>
+              <p className="text-xs text-muted-foreground">
+                Design a custom student persona to practice with
+              </p>
+            </div>
+            <Button asChild variant="outline" size="sm">
+              <Link to="/create-scenario">
+                <ArrowRight className="h-3.5 w-3.5" />
+                Build
+              </Link>
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Stats */}
       {isPending ? (
         <div className="mt-8 grid gap-4 sm:grid-cols-3">

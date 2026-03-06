@@ -61,12 +61,18 @@ messageRoutes.post('/', async (c) => {
   const sc = await findScenario(scenarioId);
   if (!sc) return c.json({ error: 'Scenario not found' }, 404);
 
-  // Verify course is published (teachers should not start conversations on private/archived courses)
+  // Verify course is accessible: published OR private and owned by this user
   const [parentCourse] = await db
-    .select({ visibility: course.visibility })
+    .select({ visibility: course.visibility, createdBy: course.createdBy })
     .from(course)
     .where(eq(course.id, sc.courseId));
-  if (!parentCourse || parentCourse.visibility !== 'published') {
+  if (!parentCourse) {
+    return c.json({ error: 'Course not available' }, 403);
+  }
+  const isPublished = parentCourse.visibility === 'published';
+  const isOwnPrivate =
+    parentCourse.visibility === 'private' && parentCourse.createdBy === user.id;
+  if (!isPublished && !isOwnPrivate) {
     return c.json({ error: 'Course not available' }, 403);
   }
 
@@ -318,7 +324,11 @@ messageRoutes.post('/:id/messages', async (c) => {
       });
     }
 
-    const respondingAgents = detectAddressedAgents(content, agents) ?? agents;
+    const lastSpeakerAgentId = [...recentMessages]
+      .reverse()
+      .find((m) => m.role === 'assistant' && m.agentId)?.agentId;
+    const respondingAgents =
+      detectAddressedAgents(content, agents, lastSpeakerAgentId) ?? agents;
 
     budgetConsumed = false;
     return streamSSE(c, async (stream) => {
@@ -333,6 +343,7 @@ messageRoutes.post('/:id/messages', async (c) => {
         teacherSortOrder,
         userId: user.id,
         afterSave: upsertProgress,
+        activityContext: sc.activityContext,
       });
 
       await handleInlineNudge({

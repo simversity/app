@@ -161,8 +161,27 @@ async function streamAndSaveAIResponseInner(
         opts.abortController?.abort();
         return;
       }
-      const choice = chunk.choices?.[0];
-      if (!choice) {
+
+      // Extract text and finish reason from either OpenAI or Anthropic streaming format.
+      // NEAR AI Cloud returns Anthropic-native SSE for Claude models.
+      let text: string | undefined | null;
+      let chunkFinishReason: string | null = null;
+      const raw = chunk as unknown as Record<string, unknown>;
+
+      if (chunk.choices?.[0]) {
+        // OpenAI format: { choices: [{ delta: { content }, finish_reason }] }
+        const choice = chunk.choices[0];
+        text = choice.delta?.content;
+        chunkFinishReason = choice.finish_reason ?? null;
+      } else if (raw.type === 'content_block_delta') {
+        // Anthropic format: { type: "content_block_delta", delta: { text } }
+        const delta = raw.delta as { text?: string } | undefined;
+        text = delta?.text;
+      } else if (raw.type === 'message_delta') {
+        // Anthropic format: { type: "message_delta", delta: { stop_reason } }
+        const delta = raw.delta as { stop_reason?: string } | undefined;
+        chunkFinishReason = delta?.stop_reason ?? null;
+      } else {
         if (chunks.length === 0) {
           log.debug(
             {
@@ -174,7 +193,7 @@ async function streamAndSaveAIResponseInner(
         }
         continue;
       }
-      const text = choice.delta?.content;
+
       if (text) {
         responseChars += text.length;
         if (responseChars > MAX_RESPONSE_CHARS) {
@@ -188,8 +207,10 @@ async function streamAndSaveAIResponseInner(
           event: 'message',
         });
       }
-      if (choice?.finish_reason) {
-        finishReason = choice.finish_reason;
+      if (chunkFinishReason) {
+        // Normalize Anthropic stop reasons to OpenAI equivalents
+        finishReason =
+          chunkFinishReason === 'max_tokens' ? 'length' : chunkFinishReason;
       }
     }
   } catch (err) {

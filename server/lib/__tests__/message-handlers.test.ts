@@ -134,6 +134,7 @@ function makeAgent(id: string, name: string, maxTokens?: number) {
     sortOrder: 0,
     maxResponseTokens: maxTokens ?? null,
     personaName: name,
+    personaDescription: `${name} is a student.`,
     systemPrompt: `You are ${name}.`,
   };
 }

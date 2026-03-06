@@ -71,6 +71,8 @@ export function PostConversationPhase({
             disabled={observer.status === 'streaming' || !observer.initialized}
             isStreaming={observer.status === 'streaming'}
             streamingLabel="Observer is responding..."
+            status={observer.status}
+            lastUserContent={observer.lastUserContent}
           />
         </div>
       </ChatFooter>

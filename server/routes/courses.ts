@@ -1,4 +1,4 @@
-import { and, asc, count, eq } from 'drizzle-orm';
+import { and, asc, count, eq, or } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { db } from '../db';
 import { course } from '../db/schema';
@@ -12,7 +12,13 @@ export const courseRoutes = new Hono<AppEnv>();
 courseRoutes.use('*', requireVerified);
 
 courseRoutes.get('/', async (c) => {
+  const user = c.get('user');
   const { limit, offset } = parsePagination(c);
+
+  const visibleFilter = or(
+    eq(course.visibility, 'published'),
+    and(eq(course.visibility, 'private'), eq(course.createdBy, user.id)),
+  );
 
   const [courses, [{ total }]] = await Promise.all([
     db
@@ -24,27 +30,32 @@ courseRoutes.get('/', async (c) => {
         subject: course.subject,
         scenarioCount: course.scenarioCount,
         visibility: course.visibility,
+        createdBy: course.createdBy,
       })
       .from(course)
-      .where(eq(course.visibility, 'published'))
+      .where(visibleFilter)
       .orderBy(asc(course.title))
       .limit(limit)
       .offset(offset),
-    db
-      .select({ total: count() })
-      .from(course)
-      .where(eq(course.visibility, 'published')),
+    db.select({ total: count() }).from(course).where(visibleFilter),
   ]);
   return c.json({ courses, total });
 });
 
 courseRoutes.get('/:id', async (c) => {
+  const user = c.get('user');
   const parsed = parseUUID(c, 'id', 'course');
   if ('error' in parsed) return parsed.error;
   const courseId = parsed.id;
 
   const result = await db.query.course.findFirst({
-    where: and(eq(course.id, courseId), eq(course.visibility, 'published')),
+    where: and(
+      eq(course.id, courseId),
+      or(
+        eq(course.visibility, 'published'),
+        and(eq(course.visibility, 'private'), eq(course.createdBy, user.id)),
+      ),
+    ),
     with: {
       scenarios: {
         orderBy: (s, { asc }) => [asc(s.sortOrder)],

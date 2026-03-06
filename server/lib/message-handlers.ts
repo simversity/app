@@ -102,8 +102,13 @@ export async function handleMultiAgentResponse(
     stream: SSEStreamingApi;
     respondingAgents: LoadedAgent[];
     agents: LoadedAgent[];
-    recentMessages: { role: string; content: string }[];
+    recentMessages: {
+      role: string;
+      content: string;
+      agentId?: string | null;
+    }[];
     content: string;
+    activityContext?: string | null;
     teacherSortOrder: number;
     afterSave: (tx: Tx) => Promise<void>;
   },
@@ -134,6 +139,7 @@ export async function handleMultiAgentResponse(
       recentMessages: ctx.recentMessages,
       userContent: ctx.content,
       extraAssistantMessages: turnResponses,
+      activityContext: ctx.activityContext,
     });
 
     const agentMaxTokens = Math.min(

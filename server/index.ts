@@ -36,6 +36,7 @@ import { conversationRoutes } from './routes/conversations';
 import { courseRoutes } from './routes/courses';
 import { modelRoutes } from './routes/models';
 import { progressRoutes } from './routes/progress';
+import { scenarioBuilderRoutes } from './routes/scenario-builder';
 import { userRoutes } from './routes/user';
 
 const app = new Hono<AppEnv>();
@@ -133,6 +134,7 @@ app.route('/api/progress', progressRoutes);
 app.route('/api/admin', adminRoutes);
 app.route('/api/models', modelRoutes);
 app.route('/api/user', userRoutes);
+app.route('/api/scenario-builder', scenarioBuilderRoutes);
 
 // API documentation (Scalar UI + raw OpenAPI spec)
 const openapiSpec = readFileSync(

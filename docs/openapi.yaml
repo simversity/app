@@ -42,6 +42,8 @@ tags:
     description: Admin scenario CRUD
   - name: Admin - Personas
     description: Admin persona CRUD
+  - name: Scenario Builder
+    description: AI-assisted scenario creation for teachers
   - name: Health
     description: Health and readiness checks
 
@@ -713,6 +715,120 @@ paths:
         "400":
           $ref: "#/components/responses/BadRequest"
 
+  /api/scenario-builder/chat:
+    post:
+      tags: [Scenario Builder]
+      summary: Chat with AI scenario builder
+      description: Streams an AI response that helps the teacher design a scenario. The final assistant message may contain a `<scenario>` JSON block.
+      security:
+        - session: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [messages]
+              properties:
+                messages:
+                  type: array
+                  items:
+                    type: object
+                    required: [role, content]
+                    properties:
+                      role:
+                        type: string
+                        enum: [user, assistant]
+                      content:
+                        type: string
+                        minLength: 1
+                        maxLength: 5000
+      responses:
+        "200":
+          description: SSE stream of AI response chunks
+          content:
+            text/event-stream:
+              schema:
+                $ref: "#/components/schemas/SSEEvent"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /api/scenario-builder/create:
+    post:
+      tags: [Scenario Builder]
+      summary: Create course and scenario from builder output
+      description: Persists a scenario designed via the builder chat into a new course with personas and agents.
+      security:
+        - session: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [subject, scenarioTitle, scenarioDescription, students]
+              properties:
+                subject:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+                gradeLevel:
+                  type: string
+                  maxLength: 100
+                scenarioTitle:
+                  type: string
+                  minLength: 1
+                  maxLength: 300
+                scenarioDescription:
+                  type: string
+                  minLength: 1
+                  maxLength: 2000
+                activityContext:
+                  type: string
+                  maxLength: 500
+                students:
+                  type: array
+                  minItems: 1
+                  maxItems: 6
+                  items:
+                    type: object
+                    required: [name, description, systemPrompt, openingMessage]
+                    properties:
+                      name:
+                        type: string
+                        minLength: 1
+                        maxLength: 100
+                      description:
+                        type: string
+                        minLength: 1
+                        maxLength: 1000
+                      systemPrompt:
+                        type: string
+                        minLength: 1
+                        maxLength: 10000
+                      openingMessage:
+                        type: string
+                        minLength: 1
+                        maxLength: 2000
+      responses:
+        "201":
+          description: Scenario created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  courseId:
+                    type: string
+                    format: uuid
+                  scenarioId:
+                    type: string
+                    format: uuid
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
   /api/admin/users:
     get:
       tags: [Admin - Users]
@@ -1244,6 +1360,10 @@ components:
         visibility:
           type: string
           enum: [private, shared, published, archived]
+        createdBy:
+          type: string
+          format: uuid
+          nullable: true
 
     ConversationSummary:
       type: object

@@ -21,6 +21,7 @@ type ObserverPanelProps = {
   initialized: boolean;
   onSend: (content: string) => void;
   onClose: () => void;
+  lastUserContent?: string | null;
 };
 
 function getFocusableElements(container: HTMLElement): HTMLElement[] {
@@ -38,6 +39,7 @@ export function ObserverPanel({
   initialized,
   onSend,
   onClose,
+  lastUserContent,
 }: ObserverPanelProps) {
   const isMobile = useIsMobile();
   const panelRef = useRef<HTMLElement>(null);
@@ -159,6 +161,8 @@ export function ObserverPanel({
             disabled={status === 'streaming' || !initialized}
             isStreaming={status === 'streaming'}
             streamingLabel="Observer is responding..."
+            status={status}
+            lastUserContent={lastUserContent}
           />
         </ChatFooter>
       </aside>

@@ -155,11 +155,26 @@ observerRoutes.post('/', async (c) => {
           })
         : undefined;
 
+    // Build agent backgrounds for observer context
+    const agentBackgrounds =
+      agents.length > 0
+        ? agents
+            .filter((a) => a.personaDescription)
+            .map((a) => ({
+              name: a.personaName,
+              description: a.personaDescription,
+            }))
+        : undefined;
+
     // Build observer context
     const chatMessages = buildObserverContext({
       observerPrompt: sc.observerPrompt,
       scenarioTitle: sc.title,
       agentNames,
+      agentBackgrounds:
+        agentBackgrounds && agentBackgrounds.length > 0
+          ? agentBackgrounds
+          : undefined,
       transcript: transcript.map((m) => ({
         role: m.role,
         content: m.content,

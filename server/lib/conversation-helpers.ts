@@ -92,8 +92,9 @@ type ChatMsg = { role: 'system' | 'user' | 'assistant'; content: string };
 export function buildAgentChatMessages(opts: {
   agent: LoadedAgent;
   agents: LoadedAgent[];
-  recentMessages: { role: string; content: string }[];
+  recentMessages: { role: string; content: string; agentId?: string | null }[];
   userContent: string;
+  activityContext?: string | null;
   extraAssistantMessages?: {
     role: 'assistant';
     content: string;
@@ -102,32 +103,52 @@ export function buildAgentChatMessages(opts: {
 }): ChatMsg[] {
   const rawPrompt = opts.agent.systemPrompt || '';
   const agentSystemPrompt = rawPrompt + ANTI_EXFILTRATION;
-  const systemContent = buildGroupContext(
+  const isMultiAgent = opts.agents.length > 1;
+
+  let systemContent = buildGroupContext(
     agentSystemPrompt,
     opts.agents,
     opts.agent.personaId,
   );
 
-  const history: ChatMsg[] = opts.recentMessages.map((m) => ({
-    role: m.role as 'user' | 'assistant',
-    content: m.content,
-  }));
+  if (opts.activityContext) {
+    systemContent += `\n\n## Activity Context\n${opts.activityContext}`;
+  }
 
-  const extra: ChatMsg[] = (opts.extraAssistantMessages ?? []).map((m) => {
-    const peerName = opts.agents.find(
-      (a) => a.personaId === m.agentId,
-    )?.personaName;
-    return {
-      role: 'assistant' as const,
-      content: peerName ? `[${peerName}]: ${m.content}` : m.content,
-    };
+  const history: ChatMsg[] = opts.recentMessages.map((m) => {
+    const role = m.role as 'user' | 'assistant';
+    let content = m.content;
+    // In multi-agent conversations, prefix historical assistant messages with agent name
+    if (isMultiAgent && role === 'assistant' && m.agentId) {
+      const peerName = opts.agents.find(
+        (a) => a.personaId === m.agentId,
+      )?.personaName;
+      if (peerName) {
+        content = `[${peerName}]: ${content}`;
+      }
+    }
+    return { role, content };
   });
+
+  // Build the user message content. If other agents already responded this turn,
+  // include their responses as context in the user message so the conversation
+  // always ends with a user message (required by some model providers).
+  let userContent = opts.userContent;
+  const extraMessages = opts.extraAssistantMessages ?? [];
+  if (extraMessages.length > 0) {
+    const peerLines = extraMessages.map((m) => {
+      const peerName = opts.agents.find(
+        (a) => a.personaId === m.agentId,
+      )?.personaName;
+      return peerName ? `[${peerName}]: ${m.content}` : m.content;
+    });
+    userContent += `\n\n[Other students have already responded to this message:]\n${peerLines.join('\n')}`;
+  }
 
   return [
     { role: 'system', content: systemContent },
     ...history,
-    { role: 'user', content: opts.userContent },
-    ...extra,
+    { role: 'user', content: userContent },
   ];
 }
 
@@ -180,6 +201,7 @@ export async function buildChatContext(opts: {
     agents,
     recentMessages,
     userContent,
+    activityContext: sc.activityContext,
   });
 
   return {
@@ -190,5 +212,6 @@ export async function buildChatContext(opts: {
     agentPersonaName,
     agents,
     recentMessages,
+    activityContext: sc.activityContext,
   };
 }

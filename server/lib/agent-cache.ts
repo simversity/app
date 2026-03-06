@@ -24,6 +24,7 @@ function loadScenarioAgentsFromDb(scenarioId: string) {
       sortOrder: scenarioAgent.sortOrder,
       maxResponseTokens: scenarioAgent.maxResponseTokens,
       personaName: persona.name,
+      personaDescription: persona.description,
       systemPrompt: persona.systemPrompt,
     })
     .from(scenarioAgent)

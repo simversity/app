@@ -6,6 +6,7 @@ import {
   PromptInputTextarea,
 } from '@/components/ai-elements/prompt-input';
 import { useAppConfig } from '@/hooks/useAppConfig';
+import type { StreamingStatus } from '@/hooks/useStreamingChat';
 
 const DRAFT_PREFIX = 'simversity:draft:';
 
@@ -17,6 +18,10 @@ type ChatInputFormProps = {
   streamingLabel: string;
   /** localStorage key suffix for draft auto-save (e.g. conversationId). */
   draftKey?: string;
+  /** Current streaming status — used to clear draft only on success. */
+  status?: StreamingStatus;
+  /** Last user content from state — restored to textarea on error. */
+  lastUserContent?: string | null;
 };
 
 export function ChatInputForm({
@@ -26,10 +31,13 @@ export function ChatInputForm({
   isStreaming,
   streamingLabel,
   draftKey,
+  status,
+  lastUserContent,
 }: ChatInputFormProps) {
   const { maxMessageChars } = useAppConfig();
   const storageKey = draftKey ? `${DRAFT_PREFIX}${draftKey}` : null;
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const prevStatusRef = useRef<StreamingStatus | undefined>(status);
 
   // Restore draft on mount / key change
   useEffect(() => {
@@ -43,6 +51,29 @@ export function ChatInputForm({
       console.debug('Draft restore failed:', e);
     }
   }, [storageKey]);
+
+  // Clear draft on successful stream completion; restore on error
+  useEffect(() => {
+    const prev = prevStatusRef.current;
+    prevStatusRef.current = status;
+
+    if (prev === 'streaming' && status === 'idle') {
+      // Stream completed successfully — clear draft
+      try {
+        if (storageKey) localStorage.removeItem(storageKey);
+      } catch (e) {
+        console.debug('Draft clear failed:', e);
+      }
+    } else if (status === 'error' && lastUserContent && textareaRef.current) {
+      // Stream failed — restore message so user can retry
+      textareaRef.current.value = lastUserContent;
+      try {
+        if (storageKey) localStorage.setItem(storageKey, lastUserContent);
+      } catch (e) {
+        console.debug('Draft restore failed:', e);
+      }
+    }
+  }, [status, lastUserContent, storageKey]);
 
   const handleChange = useCallback(
     (e: ChangeEvent<HTMLTextAreaElement>) => {
@@ -66,11 +97,6 @@ export function ChatInputForm({
       onSubmit={({ text }) => {
         if (text.trim()) {
           onSend(text.trim());
-          try {
-            if (storageKey) localStorage.removeItem(storageKey);
-          } catch (e) {
-            console.debug('Draft clear failed:', e);
-          }
         }
       }}
     >
