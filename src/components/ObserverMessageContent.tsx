@@ -21,7 +21,7 @@ export const ObserverMessageContent = memo(function ObserverMessageContent({
   // If no sections detected, render as plain markdown
   if (sections.length === 1 && !sections[0].heading) {
     return (
-      <div className="prose prose-sm max-w-none dark:prose-invert">
+      <div className="prose prose-sm max-w-none text-foreground prose-headings:text-foreground prose-strong:text-foreground prose-p:text-foreground prose-li:text-foreground">
         <Markdown>{content}</Markdown>
       </div>
     );
@@ -52,7 +52,7 @@ function SectionBlock({ section }: { section: ParsedSection }) {
           </p>
         )}
         {section.body && (
-          <div className="prose prose-sm max-w-none dark:prose-invert">
+          <div className="prose prose-sm max-w-none text-foreground prose-headings:text-foreground prose-strong:text-foreground prose-p:text-foreground prose-li:text-foreground">
             <Markdown>{section.body}</Markdown>
           </div>
         )}
@@ -68,7 +68,7 @@ function SectionBlock({ section }: { section: ParsedSection }) {
         </p>
       )}
       {section.body && (
-        <div className="prose prose-sm max-w-none dark:prose-invert">
+        <div className="prose prose-sm max-w-none text-foreground prose-headings:text-foreground prose-strong:text-foreground prose-p:text-foreground prose-li:text-foreground">
           <Markdown>{section.body}</Markdown>
         </div>
       )}
