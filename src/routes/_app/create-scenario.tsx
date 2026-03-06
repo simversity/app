@@ -3,7 +3,6 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { ArrowLeft, CheckCircle, Sparkles, Users } from 'lucide-react';
 import { useRef } from 'react';
 import { ChatBubble } from '@/components/ai-elements/chat-bubble';
-import { StreamingDots } from '@/components/ai-elements/streaming-dots';
 import { ChatInputForm } from '@/components/ChatInputForm';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -116,13 +115,6 @@ function CreateScenario() {
             />
           ))}
 
-          {status === 'streaming' &&
-            messages[messages.length - 1]?.isStreaming &&
-            !messages[messages.length - 1]?.content && (
-              <div className="flex items-center gap-2 px-11 text-sm text-muted-foreground">
-                <StreamingDots />
-              </div>
-            )}
         </div>
 
         {parsedScenario && (
