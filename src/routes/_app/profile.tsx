@@ -1,15 +1,28 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { createFileRoute } from '@tanstack/react-router';
+import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { Calendar, Check, GraduationCap, Mail, Pencil } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { PasswordInput } from '@/components/ui/password-input';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { apiFetch, apiMutate } from '@/lib/api';
-import { useSession } from '@/lib/auth-client';
+import { authClient, signOut, useSession } from '@/lib/auth-client';
+import { getUserFriendlyMessage } from '@/lib/error-messages';
 import { queryKeys } from '@/lib/query-keys';
 import type { ProfileData } from '@/types/api';
 
@@ -82,7 +95,9 @@ function Profile() {
 
       {loadError && (
         <Alert variant="destructive" className="mt-6">
-          <AlertDescription>{loadError.message}</AlertDescription>
+          <AlertDescription>
+            {getUserFriendlyMessage(loadError)}
+          </AlertDescription>
         </Alert>
       )}
 
@@ -136,7 +151,9 @@ function Profile() {
 
           {saveMutation.error && (
             <Alert variant="destructive">
-              <AlertDescription>{saveMutation.error.message}</AlertDescription>
+              <AlertDescription>
+                {getUserFriendlyMessage(saveMutation.error)}
+              </AlertDescription>
             </Alert>
           )}
 
@@ -219,6 +236,221 @@ function Profile() {
           </div>
         </div>
       )}
+
+      {!editing && <ChangePassword />}
+      {!editing && <DeleteAccount />}
+    </div>
+  );
+}
+
+function ChangePassword() {
+  const [open, setOpen] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const reset = () => {
+    setCurrentPassword('');
+    setNewPassword('');
+    setConfirmPassword('');
+    setError('');
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+
+    if (newPassword.length < 8) {
+      setError('New password must be at least 8 characters.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setError('Passwords do not match.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const res = await authClient.changePassword({
+        currentPassword,
+        newPassword,
+      });
+      if (res.error) {
+        setError(res.error.message || 'Failed to change password.');
+      } else {
+        toast.success('Password updated');
+        reset();
+        setOpen(false);
+      }
+    } catch (err) {
+      setError(getUserFriendlyMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!open) {
+    return (
+      <div className="mt-6">
+        <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
+          Change password
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+      <div className="rounded-lg border border-border bg-card p-6">
+        <h3 className="mb-4 text-sm font-semibold">Change Password</h3>
+        <div className="space-y-4">
+          <div>
+            <Label htmlFor="currentPassword">Current password</Label>
+            <PasswordInput
+              id="currentPassword"
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+              required
+              className="mt-1"
+            />
+          </div>
+          <div>
+            <Label htmlFor="newPassword">New password</Label>
+            <PasswordInput
+              id="newPassword"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              required
+              minLength={8}
+              className="mt-1"
+            />
+          </div>
+          <div>
+            <Label htmlFor="confirmPassword">Confirm new password</Label>
+            <PasswordInput
+              id="confirmPassword"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              required
+              minLength={8}
+              className="mt-1"
+            />
+          </div>
+        </div>
+      </div>
+
+      {error && (
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      <div className="flex justify-end gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => {
+            reset();
+            setOpen(false);
+          }}
+        >
+          Cancel
+        </Button>
+        <Button type="submit" disabled={loading}>
+          {loading ? 'Updating...' : 'Update password'}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+function DeleteAccount() {
+  const navigate = useNavigate();
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [open, setOpen] = useState(false);
+
+  const handleDelete = async () => {
+    setError('');
+    if (!password) {
+      setError('Please enter your password.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await apiMutate('/api/user/delete-account', {
+        method: 'POST',
+        body: { password },
+      });
+      // signOut may fail if the session was already cascade-deleted server-side
+      await signOut().catch(() => {});
+      navigate({ to: '/login' });
+    } catch (err) {
+      setError(getUserFriendlyMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="mt-8 rounded-lg border border-destructive/30 bg-destructive/5 p-6">
+      <h3 className="text-sm font-semibold text-destructive">Delete Account</h3>
+      <p className="mt-1 text-xs text-muted-foreground">
+        Permanently delete your account, all conversations, and feedback. This
+        cannot be undone.
+      </p>
+      <AlertDialog open={open} onOpenChange={setOpen}>
+        <AlertDialogTrigger asChild>
+          <Button variant="destructive" size="sm" className="mt-4">
+            Delete account
+          </Button>
+        </AlertDialogTrigger>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete your account?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete your account, all conversations, and
+              observer feedback. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="delete-password">
+              Enter your password to confirm
+            </Label>
+            <PasswordInput
+              id="delete-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Current password"
+            />
+            {error && <p className="text-sm text-destructive">{error}</p>}
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              onClick={() => {
+                setPassword('');
+                setError('');
+              }}
+            >
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                handleDelete();
+              }}
+              disabled={loading}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {loading ? 'Deleting...' : 'Delete my account'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

@@ -44,6 +44,8 @@ tags:
     description: Admin persona CRUD
   - name: Scenario Builder
     description: AI-assisted scenario creation for teachers
+  - name: Admin - Files
+    description: Admin file management
   - name: Health
     description: Health and readiness checks
 
@@ -113,6 +115,9 @@ paths:
                   maxMessageChars:
                     type: integer
                     example: 5000
+                  maxMessagesPerConversation:
+                    type: integer
+                    example: 100
                   minMessagesToComplete:
                     type: integer
                     example: 5
@@ -714,6 +719,308 @@ paths:
                     $ref: "#/components/schemas/UserProfile"
         "400":
           $ref: "#/components/responses/BadRequest"
+
+  /api/user/delete-account:
+    post:
+      tags: [User]
+      summary: Delete user account
+      description: Permanently deletes the user account and all associated data. Requires password confirmation.
+      security:
+        - session: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password]
+              properties:
+                password:
+                  type: string
+                  minLength: 1
+      responses:
+        "200":
+          description: Account deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+        "403":
+          description: Incorrect password
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /api/budget:
+    get:
+      tags: [User]
+      summary: Get daily message budget status
+      security:
+        - session: []
+      responses:
+        "200":
+          description: Budget status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  used:
+                    type: integer
+                  limit:
+                    type: integer
+                  remaining:
+                    type: integer
+                  enabled:
+                    type: boolean
+
+  /api/conversations/{id}/files:
+    get:
+      tags: [Conversations]
+      summary: List files for conversation's scenario
+      security:
+        - session: []
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200":
+          description: File list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/UploadedFile"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      tags: [Conversations]
+      summary: Upload file to conversation's scenario
+      security:
+        - session: []
+      parameters:
+        - $ref: "#/components/parameters/id"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        "201":
+          description: File uploaded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadedFile"
+        "400":
+          description: Unsupported file type or content mismatch
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "413":
+          description: File too large (50MB documents, 5MB images)
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /api/files/{fileId}/content:
+    get:
+      tags: [Conversations]
+      summary: Serve file content
+      description: Returns file content. Requires the user to have access to the file's parent course/scenario via a conversation. Admins can access any file.
+      security:
+        - session: []
+      parameters:
+        - name: fileId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: File content
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/admin/courses/{courseId}/files:
+    get:
+      tags: [Admin - Courses]
+      summary: List course files
+      security:
+        - session: []
+      parameters:
+        - name: courseId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: File list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/UploadedFile"
+    post:
+      tags: [Admin - Courses]
+      summary: Upload file to course
+      security:
+        - session: []
+      parameters:
+        - name: courseId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        "201":
+          description: File uploaded
+        "400":
+          description: Unsupported file type or content mismatch
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "413":
+          description: File too large (50MB documents, 5MB images)
+
+  /api/admin/scenarios/{scenarioId}/files:
+    get:
+      tags: [Admin - Scenarios]
+      summary: List scenario files
+      security:
+        - session: []
+      parameters:
+        - name: scenarioId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: File list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/UploadedFile"
+    post:
+      tags: [Admin - Scenarios]
+      summary: Upload file to scenario
+      security:
+        - session: []
+      parameters:
+        - name: scenarioId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        "201":
+          description: File uploaded
+        "400":
+          description: Unsupported file type or content mismatch
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "413":
+          description: File too large (50MB documents, 5MB images)
+
+  /api/admin/files/{fileId}:
+    patch:
+      tags: [Admin - Files]
+      summary: Update file description
+      security:
+        - session: []
+      parameters:
+        - name: fileId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                description:
+                  type: string
+                  maxLength: 2000
+                  nullable: true
+      responses:
+        "200":
+          description: File updated
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [Admin - Files]
+      summary: Delete file
+      security:
+        - session: []
+      parameters:
+        - name: fileId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: File deleted
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   /api/scenario-builder/chat:
     post:
@@ -1692,6 +1999,28 @@ components:
               type: string
       discriminator:
         propertyName: type
+
+    UploadedFile:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        originalName:
+          type: string
+        mimeType:
+          type: string
+        sizeBytes:
+          type: integer
+        description:
+          type: string
+          nullable: true
+        nearaiFileId:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
 
     Error:
       type: object

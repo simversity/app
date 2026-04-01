@@ -5,7 +5,9 @@
 import { Hono } from 'hono';
 import { isShuttingDown } from '../lib/shutdown';
 import type { AppEnv } from '../lib/types';
+import { requireVerified } from '../middleware/auth';
 import { adminRoutes } from '../routes/admin';
+import { budgetRoutes } from '../routes/budget';
 import { conversationRoutes } from '../routes/conversations';
 import { courseRoutes } from '../routes/courses';
 import { modelRoutes } from '../routes/models';
@@ -31,6 +33,8 @@ export function createTestApp() {
   app.route('/api/admin', adminRoutes);
   app.route('/api/models', modelRoutes);
   app.route('/api/user', userRoutes);
+  app.use('/api/budget/*', requireVerified);
+  app.route('/api/budget', budgetRoutes);
 
   // Health endpoint (uses the test in-memory sqlite)
   app.get('/api/health', (c) => {

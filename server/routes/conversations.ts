@@ -18,9 +18,11 @@ import {
 import { MIN_MESSAGES_TO_COMPLETE, RATE_LIMIT_MESSAGES } from '../lib/env';
 import { parsePagination } from '../lib/pagination';
 import { createRateLimiter } from '../lib/rate-limit';
+import { tooManyRequests } from '../lib/responses';
 import type { AppEnv } from '../lib/types';
 import { parseUUID } from '../lib/validation';
 import { requireVerified } from '../middleware/auth';
+import { conversationFileRoutes } from './conversation-files';
 import { messageRoutes } from './conversation-messages';
 import { observerRoutes } from './observer';
 
@@ -32,6 +34,7 @@ conversationRoutes.use('*', requireVerified);
 
 // Mount sub-routes
 conversationRoutes.route('/:id/observer', observerRoutes);
+conversationRoutes.route('/:id/files', conversationFileRoutes);
 conversationRoutes.route('/', messageRoutes);
 
 conversationRoutes.get('/', async (c) => {
@@ -152,10 +155,7 @@ conversationRoutes.get('/:id', async (c) => {
 conversationRoutes.patch('/:id/complete', async (c) => {
   const user = c.get('user');
   if (!checkConversationMutationRate(user.id)) {
-    return c.json(
-      { error: 'Too many requests. Please wait a moment and try again.' },
-      429,
-    );
+    return tooManyRequests(c);
   }
   const parsed = parseUUID(c, 'id', 'conversation');
   if ('error' in parsed) return parsed.error;
@@ -241,10 +241,7 @@ conversationRoutes.patch('/:id/complete', async (c) => {
 conversationRoutes.patch('/:id/abandon', async (c) => {
   const user = c.get('user');
   if (!checkConversationMutationRate(user.id)) {
-    return c.json(
-      { error: 'Too many requests. Please wait a moment and try again.' },
-      429,
-    );
+    return tooManyRequests(c);
   }
   const parsed = parseUUID(c, 'id', 'conversation');
   if ('error' in parsed) return parsed.error;

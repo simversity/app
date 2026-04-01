@@ -35,6 +35,7 @@ const now = new Date();
 // ---------------------------------------------------------------------------
 export function resetDb() {
   testSqlite.exec('PRAGMA foreign_keys = OFF');
+  testSqlite.exec('DELETE FROM file');
   testSqlite.exec('DELETE FROM observerMessage');
   testSqlite.exec('DELETE FROM message');
   testSqlite.exec('DELETE FROM progress');

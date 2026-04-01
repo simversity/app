@@ -331,6 +331,8 @@ export const message = t.sqliteTable(
     agentId: t
       .text('agentId')
       .references(() => persona.id, { onDelete: 'set null' }), // null for teacher messages
+    /** JSON array of tool calls: [{name, arguments}]. Null if no tools used. */
+    toolCalls: t.text('toolCalls'),
     createdAt: t
       .integer('createdAt', { mode: 'timestamp' })
       .notNull()
@@ -371,6 +373,8 @@ export const observerMessage = t.sqliteTable(
       .references(() => conversation.id, { onDelete: 'cascade' }),
     role: t.text('role').notNull(), // 'user' (teacher asks) | 'assistant' (observer responds)
     content: t.text('content').notNull(),
+    /** JSON array of tool calls: [{name, arguments}]. Null if no tools used. */
+    toolCalls: t.text('toolCalls'),
     sortOrder: t.integer('sortOrder').notNull(),
     createdAt: t
       .integer('createdAt', { mode: 'timestamp' })
@@ -446,6 +450,7 @@ export const accessCodeRelations = relations(accessCode, ({ one }) => ({
 
 export const courseRelations = relations(course, ({ many }) => ({
   scenarios: many(scenario),
+  files: many(uploadedFile),
 }));
 
 export const personaRelations = relations(persona, ({ one, many }) => ({
@@ -463,6 +468,7 @@ export const scenarioRelations = relations(scenario, ({ one, many }) => ({
   }),
   conversations: many(conversation),
   agents: many(scenarioAgent),
+  files: many(uploadedFile),
 }));
 
 export const scenarioAgentRelations = relations(scenarioAgent, ({ one }) => ({
@@ -521,6 +527,51 @@ export const accountRelations = relations(account, ({ one }) => ({
   user: one(user, { fields: [account.userId], references: [user.id] }),
 }));
 
+export const uploadedFile = t.sqliteTable(
+  'file',
+  {
+    id: t
+      .text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    courseId: t
+      .text('courseId')
+      .references(() => course.id, { onDelete: 'cascade' }),
+    scenarioId: t
+      .text('scenarioId')
+      .references(() => scenario.id, { onDelete: 'cascade' }),
+    uploadedBy: t
+      .text('uploadedBy')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    originalName: t.text('originalName').notNull(),
+    mimeType: t.text('mimeType').notNull(),
+    sizeBytes: t.integer('sizeBytes').notNull(),
+    description: t.text('description'),
+    /** File ID returned by NEAR AI Files API (POST /v1/files). Null for images. */
+    nearaiFileId: t.text('nearaiFileId').unique(),
+    /** Base64 data URI for images (e.g. "data:image/jpeg;base64,..."). Null for documents. */
+    dataUri: t.text('dataUri'),
+    createdAt: t
+      .integer('createdAt', { mode: 'timestamp' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    updatedAt: t
+      .integer('updatedAt', { mode: 'timestamp' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => [
+    t.index('idx_file_courseId').on(table.courseId),
+    t.index('idx_file_scenarioId').on(table.scenarioId),
+    t.index('idx_file_uploadedBy').on(table.uploadedBy),
+    t.check(
+      'check_file_parent',
+      sql`(${table.courseId} IS NOT NULL AND ${table.scenarioId} IS NULL) OR (${table.courseId} IS NULL AND ${table.scenarioId} IS NOT NULL)`,
+    ),
+  ],
+);
+
 export const dailyBudget = t.sqliteTable(
   'dailyBudget',
   {
@@ -536,6 +587,21 @@ export const dailyBudget = t.sqliteTable(
     t.index('idx_dailyBudget_date').on(table.date),
   ],
 );
+
+export const uploadedFileRelations = relations(uploadedFile, ({ one }) => ({
+  course: one(course, {
+    fields: [uploadedFile.courseId],
+    references: [course.id],
+  }),
+  scenario: one(scenario, {
+    fields: [uploadedFile.scenarioId],
+    references: [scenario.id],
+  }),
+  uploadedByUser: one(user, {
+    fields: [uploadedFile.uploadedBy],
+    references: [user.id],
+  }),
+}));
 
 export const progressRelations = relations(progress, ({ one }) => ({
   user: one(user, { fields: [progress.userId], references: [user.id] }),

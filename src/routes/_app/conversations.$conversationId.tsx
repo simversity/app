@@ -16,6 +16,14 @@ import {
 import { PostConversationPhase } from '@/components/conversation/PostConversationPhase';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from '@/components/ui/breadcrumb';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { useIsMobile } from '@/hooks/useIsMobile';
@@ -195,7 +203,13 @@ function ConversationReviewPage() {
                 </Conversation>
               </aside>
             ))}
-          <PostConversationPhase observer={observer} />
+          <PostConversationPhase
+            observer={observer}
+            scenarioTitle={data.scenario.title}
+            studentName={data.scenario.studentName}
+            conversationMessages={messages}
+            conversationDate={data.startedAt}
+          />
         </div>
       </div>
     );
@@ -204,20 +218,21 @@ function ConversationReviewPage() {
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-background">
       <header className="flex items-center gap-3 border-b border-border px-4 py-3">
-        <Button variant="ghost" size="icon" asChild>
-          <Link
-            to="/courses/$courseId"
-            params={{ courseId: data.scenario.courseId }}
-            aria-label="Back to course"
-          >
-            <ArrowLeft className="h-5 w-5" />
-          </Link>
-        </Button>
         <div className="flex-1 min-w-0">
-          <h1 className="truncate text-sm font-semibold">
-            {data.scenario.title}
-          </h1>
-          <p className="text-xs text-muted-foreground">
+          <Breadcrumb>
+            <BreadcrumbList>
+              <BreadcrumbItem>
+                <BreadcrumbLink asChild>
+                  <Link to="/dashboard">Dashboard</Link>
+                </BreadcrumbLink>
+              </BreadcrumbItem>
+              <BreadcrumbSeparator />
+              <BreadcrumbItem>
+                <BreadcrumbPage>{data.scenario.title}</BreadcrumbPage>
+              </BreadcrumbItem>
+            </BreadcrumbList>
+          </Breadcrumb>
+          <p className="mt-0.5 text-xs text-muted-foreground">
             {data.messageCount} messages
           </p>
         </div>

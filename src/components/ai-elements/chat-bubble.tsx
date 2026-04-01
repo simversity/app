@@ -1,7 +1,16 @@
-import { Eye, GraduationCap, User } from 'lucide-react';
+import {
+  AlertCircle,
+  Eye,
+  GraduationCap,
+  HelpCircle,
+  Lightbulb,
+  ListOrdered,
+  User,
+} from 'lucide-react';
 import { memo } from 'react';
 import { ObserverMessageContent } from '@/components/ObserverMessageContent';
-import type { ChatMessage } from '@/hooks/useStreamingChat';
+import { Badge } from '@/components/ui/badge';
+import type { ChatMessage, ToolCall } from '@/hooks/useStreamingChat';
 import { Message, MessageContent } from './message';
 import { StreamingDots } from './streaming-dots';
 
@@ -87,11 +96,21 @@ export const ChatBubble = memo(function ChatBubble({
             </p>
           )}
           {isCompact && !isUser && !message.isStreaming ? (
-            <ObserverMessageContent content={message.content} />
-          ) : (
+            message.content ? (
+              <ObserverMessageContent content={message.content} />
+            ) : null
+          ) : message.content ? (
             <p className="whitespace-pre-wrap">{message.content}</p>
+          ) : null}
+          {message.isStreaming &&
+            !message.content &&
+            !message.toolCalls?.length && <StreamingDots />}
+          {!isUser && message.toolCalls && message.toolCalls.length > 0 && (
+            <ToolCallAnnotations
+              toolCalls={message.toolCalls}
+              variant={variant}
+            />
           )}
-          {message.isStreaming && !message.content && <StreamingDots />}
         </MessageContent>
         {isUser && (
           <div
@@ -104,3 +123,162 @@ export const ChatBubble = memo(function ChatBubble({
     </Message>
   );
 });
+
+function ToolCallAnnotations({
+  toolCalls,
+  variant,
+}: {
+  toolCalls: ToolCall[];
+  variant: ChatBubbleVariant;
+}) {
+  const isObserver = variant === 'observer';
+
+  return (
+    <div className="mt-2 flex flex-wrap gap-1.5">
+      {toolCalls.map((tc, idx) => {
+        const key = `${tc.name}-${idx}`;
+        if (tc.name === 'express_confusion') {
+          const args = tc.arguments as {
+            topic?: string;
+            misconception?: string;
+          };
+          return (
+            <Badge
+              key={key}
+              variant="outline"
+              className="gap-1 border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400"
+            >
+              <HelpCircle className="size-3" />
+              Confused: {args.topic}
+              {args.misconception && ` \u2014 "${args.misconception}"`}
+            </Badge>
+          );
+        }
+        if (tc.name === 'ask_question') {
+          const args = tc.arguments as {
+            question?: string;
+            question_type?: string;
+          };
+          const typeLabel =
+            args.question_type === 'challenging'
+              ? 'Challenging'
+              : args.question_type === 'off_topic'
+                ? 'Off-topic'
+                : 'Clarifying';
+          return (
+            <Badge
+              key={key}
+              variant="outline"
+              className="gap-1 border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-400"
+            >
+              <HelpCircle className="size-3" />
+              {typeLabel} question
+            </Badge>
+          );
+        }
+        if (tc.name === 'show_reasoning') {
+          const args = tc.arguments as { steps?: string[] };
+          return (
+            <div
+              key={key}
+              className="w-full rounded-md border border-border/50 bg-muted/30 px-3 py-2 text-xs"
+            >
+              <div className="mb-1 flex items-center gap-1 font-medium text-muted-foreground">
+                <ListOrdered className="size-3" />
+                Student reasoning
+              </div>
+              <ol className="list-inside list-decimal space-y-0.5 text-muted-foreground">
+                {args.steps?.map((step, i) => (
+                  <li key={`${i}-${step}`}>{step}</li>
+                ))}
+              </ol>
+            </div>
+          );
+        }
+        if (isObserver && tc.name === 'suggest_technique') {
+          const args = tc.arguments as {
+            name?: string;
+            rationale?: string;
+            example?: string;
+          };
+          return (
+            <div
+              key={key}
+              className="w-full rounded-md border border-observer/20 bg-observer/5 px-3 py-2 text-xs"
+            >
+              <div className="mb-1 flex items-center gap-1 font-medium text-observer-foreground">
+                <Lightbulb className="size-3" />
+                Technique: {args.name}
+              </div>
+              {args.rationale && (
+                <p className="text-muted-foreground">{args.rationale}</p>
+              )}
+              {args.example && (
+                <p className="mt-1 italic text-muted-foreground">
+                  "{args.example}"
+                </p>
+              )}
+            </div>
+          );
+        }
+        if (isObserver && tc.name === 'highlight_moment') {
+          const args = tc.arguments as {
+            quote?: string;
+            feedback_type?: string;
+            suggestion?: string;
+          };
+          const typeColors = {
+            strength: 'border-green-500/30 bg-green-500/5',
+            missed_opportunity: 'border-amber-500/30 bg-amber-500/5',
+            concern: 'border-red-500/30 bg-red-500/5',
+          };
+          const color =
+            typeColors[args.feedback_type as keyof typeof typeColors] ||
+            typeColors.strength;
+          return (
+            <div
+              key={key}
+              className={`w-full rounded-md border px-3 py-2 text-xs ${color}`}
+            >
+              {args.quote && (
+                <blockquote className="mb-1 border-l-2 border-current pl-2 italic text-muted-foreground">
+                  "{args.quote}"
+                </blockquote>
+              )}
+              <Badge variant="outline" className="mb-1 text-xs">
+                {args.feedback_type?.replace('_', ' ')}
+              </Badge>
+              {args.suggestion && (
+                <p className="text-muted-foreground">{args.suggestion}</p>
+              )}
+            </div>
+          );
+        }
+        if (isObserver && tc.name === 'probe_decision') {
+          const args = tc.arguments as {
+            question?: string;
+            related_moment?: string;
+          };
+          return (
+            <div
+              key={key}
+              className="w-full rounded-md border border-observer/20 bg-observer/5 px-3 py-2 text-xs"
+            >
+              <div className="mb-1 flex items-center gap-1 font-medium text-observer-foreground">
+                <AlertCircle className="size-3" />
+                Reflection prompt
+              </div>
+              {args.question && <p className="font-medium">{args.question}</p>}
+              {args.related_moment && (
+                <p className="mt-0.5 text-muted-foreground">
+                  Re: {args.related_moment}
+                </p>
+              )}
+            </div>
+          );
+        }
+        return null;
+      })}
+    </div>
+  );
+}

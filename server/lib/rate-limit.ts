@@ -62,6 +62,13 @@ export function setRateLimitHeaders(c: Context, info: RateLimitInfo): void {
   c.header('X-RateLimit-Limit', String(info.limit));
   c.header('X-RateLimit-Remaining', String(info.remaining));
   c.header('X-RateLimit-Reset', String(Math.ceil(info.resetMs / 1000)));
+  if (info.remaining === 0) {
+    const retryAfter = Math.max(
+      1,
+      Math.ceil((info.resetMs - Date.now()) / 1000),
+    );
+    c.header('Retry-After', String(retryAfter));
+  }
 }
 
 /** Clear all periodic rate-limit cleanup timers (called during graceful shutdown). */

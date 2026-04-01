@@ -1,10 +1,16 @@
 import { count as countFn, eq, sql } from 'drizzle-orm';
 import type { SSEStreamingApi } from 'hono/streaming';
 import type { OpenAI } from 'openai';
+import type {
+  ChatCompletionMessageParam,
+  ChatCompletionTool,
+} from 'openai/resources/chat/completions';
+import { openai } from '../ai/client';
 import { db } from '../db';
 import { conversation, message, observerMessage } from '../db/schema';
 import { INACTIVITY_TIMEOUT_MS, MAX_RESPONSE_CHARS } from './constants';
 import { log } from './logger';
+import { withRetry } from './retry';
 import { trackStream, untrackStream } from './shutdown';
 
 type CounterField = 'messageCount' | 'observerMessageCount';
@@ -114,6 +120,17 @@ export type StreamAndSaveOpts = {
   onAIFailure?: () => void;
   /** Called after a successful save with the full AI response text */
   onComplete?: (fullText: string) => void;
+  /**
+   * Tool-calling continuation: when the model stops to call tools
+   * (finish_reason="tool_calls"), acknowledge them and continue generating.
+   * Requires model, messages, and tools to make follow-up API calls.
+   */
+  toolContinuation?: {
+    model: string;
+    messages: Record<string, unknown>[];
+    tools: ChatCompletionTool[];
+    maxTokens: number;
+  };
 };
 
 /**
@@ -137,15 +154,45 @@ export async function streamAndSaveAIResponse(
   }
 }
 
-async function streamAndSaveAIResponseInner(
-  opts: StreamAndSaveOpts,
-): Promise<void> {
-  const tbl = tables[opts.table];
+export type ToolCallAccumulator = {
+  id: string;
+  name: string;
+  arguments: string;
+};
+export type ParsedToolCall = {
+  name: string;
+  arguments: Record<string, unknown>;
+};
+
+/** Cap tool-call continuation rounds to prevent runaway loops from chatty models. */
+const MAX_TOOL_ROUNDS = 5;
+
+/**
+ * Stream one round of AI output. Returns accumulated text, tool calls,
+ * and the finish reason. Does NOT save to DB — the caller handles that.
+ */
+export async function streamOneRound(
+  aiStream: AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>,
+  opts: {
+    stream: SSEStreamingApi;
+    abortController?: AbortController;
+    conversationId: string;
+    existingChars: number;
+  },
+): Promise<{
+  chunks: string[];
+  toolAccumulators: Map<number, ToolCallAccumulator>;
+  finishReason: string | null;
+  responseChars: number;
+  aborted: boolean;
+}> {
   const chunks: string[] = [];
+  const toolAccumulators = new Map<number, ToolCallAccumulator>();
   let finishReason: string | null = null;
-  let responseChars = 0;
+  let responseChars = opts.existingChars;
   let inactivityTimer: ReturnType<typeof setTimeout> | undefined;
-  const resetInactivityTimer = () => {
+
+  const resetTimer = () => {
     clearTimeout(inactivityTimer);
     inactivityTimer = setTimeout(() => {
       opts.abortController?.abort();
@@ -153,44 +200,57 @@ async function streamAndSaveAIResponseInner(
   };
 
   try {
-    resetInactivityTimer();
-    for await (const chunk of opts.aiStream) {
-      resetInactivityTimer();
-      // If the client disconnected, abort the AI stream to stop wasting tokens
+    resetTimer();
+    for await (const chunk of aiStream) {
+      resetTimer();
       if (opts.stream.aborted) {
         opts.abortController?.abort();
-        return;
+        return {
+          chunks,
+          toolAccumulators,
+          finishReason,
+          responseChars,
+          aborted: true,
+        };
       }
 
-      // Extract text and finish reason from either OpenAI or Anthropic streaming format.
-      // NEAR AI Cloud returns Anthropic-native SSE for Claude models.
       let text: string | undefined | null;
       let chunkFinishReason: string | null = null;
+      // Cast needed to handle non-OpenAI providers (e.g. Anthropic) whose
+      // chunks have a different shape (content_block_delta, message_delta).
       const raw = chunk as unknown as Record<string, unknown>;
 
       if (chunk.choices?.[0]) {
-        // OpenAI format: { choices: [{ delta: { content }, finish_reason }] }
         const choice = chunk.choices[0];
         text = choice.delta?.content;
         chunkFinishReason = choice.finish_reason ?? null;
+
+        if (choice.delta?.tool_calls) {
+          for (const tc of choice.delta.tool_calls) {
+            const idx = tc.index ?? 0;
+            let acc = toolAccumulators.get(idx);
+            if (!acc) {
+              if (!tc.id) {
+                log.warn(
+                  { index: idx },
+                  'Tool call chunk missing ID — assigning synthetic ID',
+                );
+              }
+              acc = { id: tc.id ?? '', name: '', arguments: '' };
+              toolAccumulators.set(idx, acc);
+            }
+            if (tc.id) acc.id = tc.id;
+            if (tc.function?.name) acc.name = tc.function.name;
+            if (tc.function?.arguments) acc.arguments += tc.function.arguments;
+          }
+        }
       } else if (raw.type === 'content_block_delta') {
-        // Anthropic format: { type: "content_block_delta", delta: { text } }
         const delta = raw.delta as { text?: string } | undefined;
         text = delta?.text;
       } else if (raw.type === 'message_delta') {
-        // Anthropic format: { type: "message_delta", delta: { stop_reason } }
         const delta = raw.delta as { stop_reason?: string } | undefined;
         chunkFinishReason = delta?.stop_reason ?? null;
       } else {
-        if (chunks.length === 0) {
-          log.debug(
-            {
-              chunkKeys: Object.keys(chunk),
-              chunk: JSON.stringify(chunk).slice(0, 500),
-            },
-            'AI stream chunk without choices',
-          );
-        }
         continue;
       }
 
@@ -208,13 +268,148 @@ async function streamAndSaveAIResponseInner(
         });
       }
       if (chunkFinishReason) {
-        // Normalize Anthropic stop reasons to OpenAI equivalents
         finishReason =
           chunkFinishReason === 'max_tokens' ? 'length' : chunkFinishReason;
       }
     }
+  } finally {
+    clearTimeout(inactivityTimer);
+  }
+
+  return {
+    chunks,
+    toolAccumulators,
+    finishReason,
+    responseChars,
+    aborted: false,
+  };
+}
+
+/** Parse accumulated tool call arguments and emit SSE events. */
+export async function emitToolCalls(
+  accumulators: Map<number, ToolCallAccumulator>,
+  stream: SSEStreamingApi,
+): Promise<ParsedToolCall[]> {
+  const parsed: ParsedToolCall[] = [];
+  for (const [, acc] of accumulators) {
+    if (!acc.name) continue;
+    let args: Record<string, unknown>;
+    try {
+      args = JSON.parse(acc.arguments);
+    } catch {
+      log.warn(
+        { name: acc.name, raw: acc.arguments },
+        'Failed to parse tool call arguments — skipping emit',
+      );
+      continue;
+    }
+    parsed.push({ name: acc.name, arguments: args });
+    await stream.writeSSE({
+      data: JSON.stringify({
+        type: 'tool_call',
+        name: acc.name,
+        arguments: args,
+      }),
+      event: 'message',
+    });
+  }
+  return parsed;
+}
+
+async function streamAndSaveAIResponseInner(
+  opts: StreamAndSaveOpts,
+): Promise<void> {
+  const tbl = tables[opts.table];
+  const allChunks: string[] = [];
+  const allToolCalls: ParsedToolCall[] = [];
+  let finalFinishReason: string | null = null;
+  let currentStream = opts.aiStream;
+  const continuationMessages = opts.toolContinuation?.messages
+    ? [...opts.toolContinuation.messages]
+    : [];
+
+  try {
+    for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
+      const result = await streamOneRound(currentStream, {
+        stream: opts.stream,
+        abortController: opts.abortController,
+        conversationId: opts.conversationId,
+        existingChars: allChunks.join('').length,
+      });
+
+      if (result.aborted) return;
+      allChunks.push(...result.chunks);
+
+      // Emit tool calls as SSE events
+      const roundToolCalls = await emitToolCalls(
+        result.toolAccumulators,
+        opts.stream,
+      );
+      allToolCalls.push(...roundToolCalls);
+      finalFinishReason = result.finishReason;
+
+      // If the model wants to call tools and we can continue, do so
+      if (
+        result.finishReason === 'tool_calls' &&
+        opts.toolContinuation &&
+        roundToolCalls.length > 0 &&
+        round < MAX_TOOL_ROUNDS
+      ) {
+        // Build assistant message with tool calls for continuation
+        const assistantToolCalls = [...result.toolAccumulators.values()]
+          .filter((a) => a.name)
+          .map((a, idx) => ({
+            id: a.id || `call_${idx}`,
+            type: 'function' as const,
+            function: { name: a.name, arguments: a.arguments },
+          }));
+
+        continuationMessages.push({
+          role: 'assistant',
+          content: result.chunks.join('') || null,
+          tool_calls: assistantToolCalls,
+        });
+
+        // Add tool results — simple acknowledgments for annotation tools
+        for (const tc of assistantToolCalls) {
+          continuationMessages.push({
+            role: 'tool',
+            tool_call_id: tc.id,
+            content: 'Noted.',
+          });
+        }
+
+        // Make continuation call
+        // TODO(token-budget): Each continuation round currently receives the full
+        // maxTokens budget. Over MAX_TOOL_ROUNDS rounds the model could produce up
+        // to MAX_TOOL_ROUNDS * maxTokens tokens total. The MAX_RESPONSE_CHARS cap
+        // (512KB) provides a backstop, but a correct fix would decrement max_tokens
+        // by the tokens already generated. This requires tracking output tokens per
+        // round (not just character count) and understanding the model's token
+        // accounting for tool call overhead. Leaving as-is until we observe runaway
+        // token spend in practice.
+        const cont = opts.toolContinuation;
+        currentStream = await withRetry(() =>
+          openai.chat.completions.create(
+            {
+              model: cont.model,
+              max_tokens: cont.maxTokens,
+              messages:
+                continuationMessages as unknown as ChatCompletionMessageParam[],
+              tools: cont.tools,
+              tool_choice: 'auto',
+              stream: true as const,
+            },
+            { signal: opts.abortController?.signal },
+          ),
+        );
+        continue;
+      }
+
+      // No more tool calls — done streaming
+      break;
+    }
   } catch (err) {
-    // Ignore abort errors when client disconnected
     if (opts.stream.aborted) return;
     const errMsg = err instanceof Error ? err.message : String(err);
     const isTimeout =
@@ -244,20 +439,18 @@ async function streamAndSaveAIResponseInner(
       event: 'message',
     });
     return;
-  } finally {
-    clearTimeout(inactivityTimer);
   }
 
-  if (finishReason === 'length') {
+  if (finalFinishReason === 'length') {
     log.warn(
       { conversationId: opts.conversationId },
       'AI response truncated (finish_reason=length)',
     );
   }
 
-  const fullResponse = chunks.join('');
+  const fullResponse = allChunks.join('');
 
-  if (!fullResponse.trim()) {
+  if (!fullResponse.trim() && allToolCalls.length === 0) {
     opts.onAIFailure?.();
     await saveTombstone(tbl, opts);
     await opts.stream.writeSSE({
@@ -278,6 +471,8 @@ async function streamAndSaveAIResponseInner(
           conversationId: opts.conversationId,
           role: 'assistant',
           content: fullResponse,
+          toolCalls:
+            allToolCalls.length > 0 ? JSON.stringify(allToolCalls) : null,
           sortOrder: opts.sortOrder,
           ...opts.extraInsert,
         },
@@ -295,7 +490,7 @@ async function streamAndSaveAIResponseInner(
       data: JSON.stringify({
         type: 'done',
         messageId: aiMsgId,
-        ...(finishReason === 'length' ? { truncated: true } : {}),
+        ...(finalFinishReason === 'length' ? { truncated: true } : {}),
         ...opts.extraDone,
       }),
       event: 'message',

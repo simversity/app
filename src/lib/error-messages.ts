@@ -10,6 +10,9 @@ export function getUserFriendlyMessage(error: unknown): string {
       error.message && !error.message.startsWith('Request failed:');
 
     if (error.status === 429) {
+      if (error.retryAfter && error.retryAfter > 0) {
+        return `Too many requests. Please try again in ${error.retryAfter} seconds.`;
+      }
       return hasServerMessage
         ? error.message
         : 'Too many requests. Please wait a moment and try again.';
@@ -42,4 +45,15 @@ export function getUserFriendlyMessage(error: unknown): string {
   }
 
   return 'Something went wrong. Please try again.';
+}
+
+/**
+ * Extract a user-friendly message from errors caught in form submissions.
+ * Treats network failures specially since their default message is unhelpful.
+ */
+export function getFormErrorMessage(err: unknown): string {
+  if (err instanceof Error && err.message !== 'Failed to fetch') {
+    return err.message;
+  }
+  return 'Unable to connect. Please check your network and try again.';
 }

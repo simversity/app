@@ -2,9 +2,10 @@ import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { useState } from 'react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { PasswordInput } from '@/components/ui/password-input';
 import { authClient } from '@/lib/auth-client';
+import { getFormErrorMessage } from '@/lib/error-messages';
 
 export const Route = createFileRoute('/_auth/reset-password')({
   component: ResetPassword,
@@ -63,19 +64,26 @@ function ResetPassword() {
         body: { newPassword: password, token },
       });
       if (res.error) {
-        setError(
-          (res.error as { message?: string }).message ||
-            'Failed to reset password. The link may have expired.',
-        );
+        const msg = (
+          (res.error as { message?: string }).message ?? ''
+        ).toLowerCase();
+        if (msg.includes('expired')) {
+          setError('This reset link has expired. Please request a new one.');
+        } else if (msg.includes('used') || msg.includes('already')) {
+          setError(
+            'This reset link has already been used. If you need to reset again, request a new link.',
+          );
+        } else {
+          setError(
+            (res.error as { message?: string }).message ||
+              'This reset link is invalid. Please request a new password reset.',
+          );
+        }
       } else {
         navigate({ to: '/login', search: { reset: 'success' } });
       }
     } catch (err) {
-      setError(
-        err instanceof Error && err.message !== 'Failed to fetch'
-          ? err.message
-          : 'Unable to connect. Please check your network and try again.',
-      );
+      setError(getFormErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -107,9 +115,8 @@ function ResetPassword() {
 
           <div className="space-y-2">
             <Label htmlFor="password">New password</Label>
-            <Input
+            <PasswordInput
               id="password"
-              type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               minLength={8}
@@ -120,9 +127,8 @@ function ResetPassword() {
 
           <div className="space-y-2">
             <Label htmlFor="confirm-password">Confirm password</Label>
-            <Input
+            <PasswordInput
               id="confirm-password"
-              type="password"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               minLength={8}

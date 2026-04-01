@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { ChatBubble } from '@/components/ai-elements/chat-bubble';
 import {
   Conversation,
@@ -7,11 +7,14 @@ import {
 } from '@/components/ai-elements/conversation';
 import { ChatFooter } from '@/components/ChatFooter';
 import { ChatInputForm } from '@/components/ChatInputForm';
+import { DailyBudgetWarning } from '@/components/conversation/DailyBudgetWarning';
 import { ObserverPanel } from '@/components/ObserverPanel';
 import { StreamingStatusIndicator } from '@/components/StreamingStatusIndicator';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { useAppConfig } from '@/hooks/useAppConfig';
 import type { useConversation } from '@/hooks/useConversation';
 import type { useObserver } from '@/hooks/useObserver';
+import { OBSERVER_USED_KEY } from '@/lib/constants';
 
 type ActiveConversationPhaseProps = {
   conv: ReturnType<typeof useConversation>;
@@ -30,6 +33,13 @@ export function ActiveConversationPhase({
   completeError,
   onCloseObserver,
 }: ActiveConversationPhaseProps) {
+  const config = useAppConfig();
+  const messageCount = conv.messages.length;
+  const maxMessages = config.maxMessagesPerConversation;
+  const messageLimitReached = messageCount >= maxMessages;
+  const messageLimitWarning =
+    !messageLimitReached && messageCount >= maxMessages * 0.8;
+
   const handleRetry = useCallback(() => {
     if (conv.lastUserContent) {
       conv.clearError();
@@ -52,30 +62,33 @@ export function ActiveConversationPhase({
     return null;
   }, [conv.status, conv.messages]);
 
-  // Show observer tip after 4th user message, once per session
+  // Show observer tip after 4th user message.
+  // Persist dismissal permanently only once the user has actually used the observer.
   const userMessageCount = conv.messages.filter(
     (m) => m.role === 'user',
   ).length;
+  const observerHasBeenUsed =
+    observerOpen || observer.messages.length > 0 || observer.initialized;
   const [tipDismissed, setTipDismissed] = useState(() => {
     try {
-      return sessionStorage.getItem('simversity:observer-tip-shown') === '1';
-    } catch (e) {
-      console.debug('sessionStorage read failed:', e);
+      return localStorage.getItem(OBSERVER_USED_KEY) === '1';
+    } catch {
       return false;
     }
   });
   const showObserverTip =
     !tipDismissed && userMessageCount >= 4 && !observerOpen;
 
-  useEffect(() => {
-    if (showObserverTip) {
+  const handleDismissTip = useCallback(() => {
+    setTipDismissed(true);
+    if (observerHasBeenUsed) {
       try {
-        sessionStorage.setItem('simversity:observer-tip-shown', '1');
-      } catch (e) {
-        console.debug('sessionStorage write failed:', e);
+        localStorage.setItem(OBSERVER_USED_KEY, '1');
+      } catch {
+        // ignore
       }
     }
-  }, [showObserverTip]);
+  }, [observerHasBeenUsed]);
 
   const streamingLabel = streamingAgentName
     ? `${streamingAgentName} is responding...`
@@ -115,7 +128,7 @@ export function ActiveConversationPhase({
                 <button
                   type="button"
                   className="shrink-0 text-xs font-medium text-muted-foreground hover:text-foreground"
-                  onClick={() => setTipDismissed(true)}
+                  onClick={handleDismissTip}
                 >
                   Dismiss
                 </button>
@@ -131,20 +144,41 @@ export function ActiveConversationPhase({
         </Conversation>
 
         <ChatFooter className="bg-background">
+          <DailyBudgetWarning />
+          {messageLimitWarning && (
+            <div className="mx-auto mb-2 max-w-2xl rounded-lg border border-yellow-500/30 bg-yellow-500/5 px-4 py-2.5 text-sm text-muted-foreground">
+              You&apos;re approaching the message limit ({messageCount}/
+              {maxMessages}). Consider wrapping up the conversation.
+            </div>
+          )}
+          {messageLimitReached && (
+            <Alert variant="destructive" className="mx-auto mb-2 max-w-2xl">
+              <AlertDescription>
+                Message limit reached. Please end the conversation or start a
+                new one.
+              </AlertDescription>
+            </Alert>
+          )}
           <div className="mx-auto max-w-2xl">
             <ChatInputForm
               onSend={conv.sendMessage}
-              placeholder="Respond to the student..."
+              placeholder={
+                messageLimitReached
+                  ? 'Message limit reached'
+                  : 'Respond to the student...'
+              }
               disabled={
                 conv.status === 'streaming' ||
                 !conv.conversationId ||
-                completing
+                completing ||
+                messageLimitReached
               }
               isStreaming={conv.status === 'streaming'}
               streamingLabel={streamingLabel}
               draftKey={conv.conversationId ?? undefined}
               status={conv.status}
               lastUserContent={conv.lastUserContent}
+              conversationId={conv.conversationId}
             />
           </div>
         </ChatFooter>

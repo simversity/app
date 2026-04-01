@@ -1,4 +1,5 @@
-import { Eye } from 'lucide-react';
+import { Download, Eye } from 'lucide-react';
+import { useCallback } from 'react';
 import { ChatBubble } from '@/components/ai-elements/chat-bubble';
 import {
   Conversation,
@@ -9,15 +10,54 @@ import { ChatFooter } from '@/components/ChatFooter';
 import { ChatInputForm } from '@/components/ChatInputForm';
 import { ObserverIcon } from '@/components/ObserverIcon';
 import { StreamingStatusIndicator } from '@/components/StreamingStatusIndicator';
+import { Button } from '@/components/ui/button';
 import type { useObserver } from '@/hooks/useObserver';
+import type { ChatMessage } from '@/hooks/useStreamingChat';
+import {
+  downloadMarkdown,
+  generateFeedbackMarkdown,
+} from '@/lib/export-feedback';
 
 type PostConversationPhaseProps = {
   observer: ReturnType<typeof useObserver>;
+  scenarioTitle?: string;
+  studentName?: string;
+  conversationMessages?: ChatMessage[];
+  conversationDate?: string;
 };
 
 export function PostConversationPhase({
   observer,
+  scenarioTitle,
+  studentName,
+  conversationMessages,
+  conversationDate,
 }: PostConversationPhaseProps) {
+  const canExport =
+    observer.messages.length > 0 && scenarioTitle && conversationMessages;
+
+  const handleExport = useCallback(() => {
+    if (!canExport) return;
+    const md = generateFeedbackMarkdown({
+      scenarioTitle: scenarioTitle ?? 'Conversation',
+      studentName: studentName ?? 'Student',
+      date: conversationDate ?? new Date().toISOString(),
+      conversationMessages: conversationMessages ?? [],
+      observerMessages: observer.messages,
+    });
+    const slug = (scenarioTitle ?? 'feedback')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .slice(0, 40);
+    downloadMarkdown(md, `feedback-${slug}.md`);
+  }, [
+    canExport,
+    scenarioTitle,
+    studentName,
+    conversationDate,
+    conversationMessages,
+    observer.messages,
+  ]);
   return (
     <div className="flex flex-1 flex-col">
       <Conversation className="flex-1">
@@ -27,12 +67,22 @@ export function PostConversationPhase({
         >
           <div className="mb-2 flex items-center gap-3">
             <ObserverIcon size="lg" />
-            <div>
+            <div className="flex-1">
               <h2 className="text-xl font-bold">Observer Feedback</h2>
               <p className="mt-0.5 text-xs text-muted-foreground">
                 Ask the observer about your teaching approach
               </p>
             </div>
+            {canExport && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={handleExport}
+                aria-label="Export feedback"
+              >
+                <Download className="h-4 w-4" />
+              </Button>
+            )}
           </div>
 
           {observer.messages.map((msg) => (

@@ -25,6 +25,7 @@ import {
   handleSingleAgentResponse,
 } from '../lib/message-handlers';
 import { createRateLimiter } from '../lib/rate-limit';
+import { dailyLimitReached, tooManyRequests } from '../lib/responses';
 import { checkDailyBudget } from '../lib/shared-budgets';
 import { canAcceptStream } from '../lib/shutdown';
 import { saveUserMessage } from '../lib/streaming';
@@ -48,10 +49,7 @@ messageRoutes.post('/', async (c) => {
   const user = c.get('user');
 
   if (!checkStartRate(user.id)) {
-    return c.json(
-      { error: 'Too many requests. Please wait a moment and try again.' },
-      429,
-    );
+    return tooManyRequests(c);
   }
 
   const result = await parseBody(c, startConversationSchema);
@@ -167,16 +165,10 @@ messageRoutes.post('/:id/messages', async (c) => {
   const user = c.get('user');
 
   if (!checkRateLimit(user.id)) {
-    return c.json(
-      { error: 'Too many requests. Please wait a moment and try again.' },
-      429,
-    );
+    return tooManyRequests(c);
   }
-  if (checkDailyBudget && !checkDailyBudget(user.id)) {
-    return c.json(
-      { error: 'Daily message limit reached. Please try again tomorrow.' },
-      429,
-    );
+  if (!checkDailyBudget(user.id)) {
+    return dailyLimitReached(c);
   }
 
   let budgetConsumed = true;
@@ -217,6 +209,7 @@ messageRoutes.post('/:id/messages', async (c) => {
       agentPersonaName,
       agents,
       recentMessages,
+      fileRefs,
     } = ctx;
 
     if (!canAcceptStream(user.id)) {
@@ -320,6 +313,7 @@ messageRoutes.post('/:id/messages', async (c) => {
           agentPersonaName,
           userId: user.id,
           afterSave: upsertProgress,
+          fileRefs,
         });
       });
     }
@@ -344,6 +338,7 @@ messageRoutes.post('/:id/messages', async (c) => {
         userId: user.id,
         afterSave: upsertProgress,
         activityContext: sc.activityContext,
+        fileRefs,
       });
 
       await handleInlineNudge({
@@ -359,6 +354,6 @@ messageRoutes.post('/:id/messages', async (c) => {
       });
     });
   } finally {
-    if (budgetConsumed) checkDailyBudget?.release(user.id);
+    if (budgetConsumed) checkDailyBudget.release(user.id);
   }
 });

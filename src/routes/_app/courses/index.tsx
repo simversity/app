@@ -1,14 +1,16 @@
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, Link } from '@tanstack/react-router';
-import { BookOpen, Plus, Sparkles } from 'lucide-react';
+import { BookOpen, Plus, Search, Sparkles } from 'lucide-react';
+import { useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Spinner } from '@/components/ui/spinner';
+import { Input } from '@/components/ui/input';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { apiFetch } from '@/lib/api';
 import { queryKeys } from '@/lib/query-keys';
 import type { Course } from '@/types/api';
 
 type CourseWithMeta = Course & { visibility?: string; createdBy?: string };
+type ProgressRecord = { courseId: string; status: string };
 
 export const Route = createFileRoute('/_app/courses/')({
   component: CourseCatalog,
@@ -19,9 +21,37 @@ function CourseCatalog() {
     queryKey: queryKeys.courses,
     queryFn: () => apiFetch<{ courses: CourseWithMeta[] }>('/api/courses'),
   });
+  const { data: progressData } = useQuery({
+    queryKey: queryKeys.progress,
+    queryFn: () =>
+      apiFetch<{ progress: ProgressRecord[] }>('/api/progress?limit=200'),
+  });
+
+  const [search, setSearch] = useState('');
+
   const allCourses = data?.courses ?? [];
-  const myCourses = allCourses.filter((c) => c.visibility === 'private');
-  const publishedCourses = allCourses.filter((c) => c.visibility !== 'private');
+  const filtered = allCourses.filter((c) => {
+    if (!search) return true;
+    const q = search.toLowerCase();
+    return (
+      c.title.toLowerCase().includes(q) ||
+      c.description.toLowerCase().includes(q) ||
+      c.subject.toLowerCase().includes(q)
+    );
+  });
+  const myCourses = filtered.filter((c) => c.visibility === 'private');
+  const publishedCourses = filtered.filter((c) => c.visibility !== 'private');
+
+  const courseProgress = useMemo(() => {
+    const map = new Map<string, { completed: number; total: number }>();
+    for (const p of progressData?.progress ?? []) {
+      const entry = map.get(p.courseId) ?? { completed: 0, total: 0 };
+      entry.total++;
+      if (p.status === 'completed') entry.completed++;
+      map.set(p.courseId, entry);
+    }
+    return map;
+  }, [progressData]);
 
   usePageTitle('Courses');
 
@@ -42,13 +72,48 @@ function CourseCatalog() {
         </Button>
       </div>
 
+      {!isPending && !error && allCourses.length > 0 && (
+        <div className="relative mt-6">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Search courses..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-9"
+          />
+        </div>
+      )}
+
       {isPending ? (
-        <div className="mt-8 flex justify-center">
-          <Spinner className="size-8" />
+        <div className="mt-8 grid gap-6 sm:grid-cols-2">
+          {[1, 2, 3, 4].map((i) => (
+            <div
+              key={i}
+              className="rounded-lg border border-border bg-card p-6"
+            >
+              <div className="flex items-start gap-4">
+                <div className="h-10 w-10 animate-pulse rounded-lg bg-muted motion-reduce:animate-none" />
+                <div className="flex-1 space-y-2">
+                  <div className="h-5 w-3/4 animate-pulse rounded bg-muted motion-reduce:animate-none" />
+                  <div className="h-4 w-full animate-pulse rounded bg-muted motion-reduce:animate-none" />
+                  <div className="mt-3 flex gap-2">
+                    <div className="h-5 w-16 animate-pulse rounded-full bg-muted motion-reduce:animate-none" />
+                    <div className="h-5 w-20 animate-pulse rounded bg-muted motion-reduce:animate-none" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
       ) : error ? (
         <div className="mt-8 rounded-lg border border-destructive/50 bg-destructive/10 p-6 text-center">
           <p className="text-sm text-destructive">{error.message}</p>
+        </div>
+      ) : search && myCourses.length === 0 && publishedCourses.length === 0 ? (
+        <div className="mt-8 py-8 text-center">
+          <p className="text-sm text-muted-foreground">
+            No courses match &ldquo;{search}&rdquo;
+          </p>
         </div>
       ) : (
         <>
@@ -60,7 +125,12 @@ function CourseCatalog() {
               </div>
               <div className="mt-4 grid gap-6 sm:grid-cols-2">
                 {myCourses.map((c) => (
-                  <CourseCard key={c.id} course={c} isPrivate />
+                  <CourseCard
+                    key={c.id}
+                    course={c}
+                    isPrivate
+                    progress={courseProgress.get(c.id)}
+                  />
                 ))}
               </div>
             </div>
@@ -75,7 +145,11 @@ function CourseCatalog() {
               )}
               <div className="grid gap-6 sm:grid-cols-2">
                 {publishedCourses.map((c) => (
-                  <CourseCard key={c.id} course={c} />
+                  <CourseCard
+                    key={c.id}
+                    course={c}
+                    progress={courseProgress.get(c.id)}
+                  />
                 ))}
               </div>
             </div>
@@ -105,9 +179,11 @@ function CourseCatalog() {
 function CourseCard({
   course: c,
   isPrivate,
+  progress,
 }: {
   course: CourseWithMeta;
   isPrivate?: boolean;
+  progress?: { completed: number; total: number };
 }) {
   return (
     <Link
@@ -135,6 +211,11 @@ function CourseCard({
               {c.subject}
             </span>
             <span>{c.scenarioCount} scenarios</span>
+            {progress && progress.completed > 0 && (
+              <span className="text-primary font-medium">
+                {progress.completed}/{c.scenarioCount} completed
+              </span>
+            )}
           </div>
         </div>
       </div>

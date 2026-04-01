@@ -4,7 +4,9 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { PasswordInput } from '@/components/ui/password-input';
 import { signIn } from '@/lib/auth-client';
+import { getFormErrorMessage } from '@/lib/error-messages';
 
 export const Route = createFileRoute('/_auth/login')({
   component: Login,
@@ -47,11 +49,7 @@ function Login() {
         },
       );
     } catch (err) {
-      setError(
-        err instanceof Error && err.message !== 'Failed to fetch'
-          ? err.message
-          : 'Unable to connect. Please check your network and try again.',
-      );
+      setError(getFormErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -108,9 +106,8 @@ function Login() {
                 Forgot password?
               </Link>
             </div>
-            <Input
+            <PasswordInput
               id="password"
-              type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required

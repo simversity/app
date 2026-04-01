@@ -5,6 +5,7 @@ import { AgentListEditor, useAgentList } from '@/components/AgentListEditor';
 import { AdminFormActions } from '@/components/admin/AdminFormActions';
 import { AdminFormShell } from '@/components/admin/AdminFormShell';
 import { MutationErrorAlert } from '@/components/admin/MutationErrorAlert';
+import { FileManager } from '@/components/FileManager';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -211,6 +212,9 @@ function ScenarioEditor() {
             </SelectContent>
           </Select>
         </div>
+
+        {/* Files */}
+        <FileManager parentType="scenario" parentId={scenarioId} />
 
         {/* Model Selection */}
         <ModelSelector

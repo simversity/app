@@ -1,3 +1,4 @@
+import { and, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import { z } from 'zod';
@@ -5,14 +6,16 @@ import { openai } from '../ai/client';
 import { buildScenarioBuilderPrompt } from '../ai/prompts';
 import { db } from '../db';
 import { course, persona, scenario, scenarioAgent } from '../db/schema';
+import { clearAgentCache } from '../lib/agent-cache';
 import { callAIWithRetry } from '../lib/ai-helpers';
 import { env, RATE_LIMIT_MESSAGES } from '../lib/env';
 import { log } from '../lib/logger';
 import { createRateLimiter } from '../lib/rate-limit';
+import { dailyLimitReached, tooManyRequests } from '../lib/responses';
 import { checkDailyBudget } from '../lib/shared-budgets';
 import { canAcceptStream } from '../lib/shutdown';
 import type { AppEnv } from '../lib/types';
-import { parseBody } from '../lib/validation';
+import { parseBody, parseUUID } from '../lib/validation';
 import { requireVerified } from '../middleware/auth';
 
 export const scenarioBuilderRoutes = new Hono<AppEnv>();
@@ -34,16 +37,10 @@ scenarioBuilderRoutes.post('/chat', async (c) => {
   const user = c.get('user');
 
   if (!checkRateLimit(user.id)) {
-    return c.json(
-      { error: 'Too many requests. Please wait a moment and try again.' },
-      429,
-    );
+    return tooManyRequests(c);
   }
-  if (checkDailyBudget && !checkDailyBudget(user.id)) {
-    return c.json(
-      { error: 'Daily message limit reached. Please try again tomorrow.' },
-      429,
-    );
+  if (!checkDailyBudget(user.id)) {
+    return dailyLimitReached(c);
   }
 
   let budgetConsumed = true;
@@ -94,7 +91,7 @@ scenarioBuilderRoutes.post('/chat', async (c) => {
         },
       );
       if (!aiStream) {
-        checkDailyBudget?.release(user.id);
+        checkDailyBudget.release(user.id);
         return;
       }
 
@@ -132,7 +129,7 @@ scenarioBuilderRoutes.post('/chat', async (c) => {
           { userId: user.id, error: err instanceof Error ? err.message : err },
           'Scenario builder stream error',
         );
-        checkDailyBudget?.release(user.id);
+        checkDailyBudget.release(user.id);
         await stream.writeSSE({
           data: JSON.stringify({
             type: 'error',
@@ -145,7 +142,7 @@ scenarioBuilderRoutes.post('/chat', async (c) => {
 
       const fullResponse = chunks.join('');
       if (!fullResponse.trim()) {
-        checkDailyBudget?.release(user.id);
+        checkDailyBudget.release(user.id);
         await stream.writeSSE({
           data: JSON.stringify({
             type: 'error',
@@ -163,7 +160,7 @@ scenarioBuilderRoutes.post('/chat', async (c) => {
       });
     });
   } finally {
-    if (budgetConsumed) checkDailyBudget?.release(user.id);
+    if (budgetConsumed) checkDailyBudget.release(user.id);
   }
 });
 
@@ -187,10 +184,7 @@ scenarioBuilderRoutes.post('/create', async (c) => {
   const user = c.get('user');
 
   if (!checkRateLimit(user.id)) {
-    return c.json(
-      { error: 'Too many requests. Please wait a moment and try again.' },
-      429,
-    );
+    return tooManyRequests(c);
   }
 
   const result = await parseBody(c, createSchema);
@@ -254,5 +248,184 @@ scenarioBuilderRoutes.post('/create', async (c) => {
       'Failed to create scenario from builder',
     );
     return c.json({ error: 'Failed to create scenario' }, 500);
+  }
+});
+
+// GET /api/scenario-builder/:scenarioId — Load user-created scenario for editing
+scenarioBuilderRoutes.get('/:scenarioId', async (c) => {
+  const user = c.get('user');
+  const parsed = parseUUID(c, 'scenarioId', 'scenario');
+  if ('error' in parsed) return parsed.error;
+
+  const s = await db.query.scenario.findFirst({
+    where: eq(scenario.id, parsed.id),
+    with: {
+      course: {
+        columns: {
+          id: true,
+          title: true,
+          subject: true,
+          gradeLevel: true,
+          visibility: true,
+          createdBy: true,
+        },
+      },
+      agents: {
+        with: { persona: true },
+        orderBy: (a, { asc }) => [asc(a.sortOrder)],
+      },
+    },
+  });
+
+  if (!s) return c.json({ error: 'Scenario not found' }, 404);
+  if (s.course.createdBy !== user.id || s.course.visibility !== 'private') {
+    return c.json({ error: 'Forbidden' }, 403);
+  }
+
+  return c.json({
+    scenarioId: s.id,
+    courseId: s.course.id,
+    scenarioTitle: s.title,
+    scenarioDescription: s.description,
+    subject: s.course.subject,
+    gradeLevel: s.course.gradeLevel,
+    activityContext: s.activityContext,
+    students: s.agents.map((a) => ({
+      personaId: a.personaId,
+      name: a.persona.name,
+      description: a.persona.description,
+      systemPrompt: a.persona.systemPrompt,
+      openingMessage: a.openingMessage ?? '',
+    })),
+  });
+});
+
+const updateSchema = z.object({
+  scenarioTitle: z.string().min(1).max(300).optional(),
+  scenarioDescription: z.string().min(1).max(2000).optional(),
+  subject: z.string().min(1).max(200).optional(),
+  gradeLevel: z.string().max(100).optional(),
+  activityContext: z.string().max(500).optional(),
+  students: z
+    .array(
+      z.object({
+        personaId: z.string().uuid(),
+        name: z.string().min(1).max(100),
+        description: z.string().min(1).max(1000),
+        systemPrompt: z.string().min(1).max(10000),
+        openingMessage: z.string().min(1).max(2000),
+      }),
+    )
+    .min(1)
+    .max(6)
+    .optional(),
+});
+
+// PATCH /api/scenario-builder/:scenarioId — Update user-created scenario
+scenarioBuilderRoutes.patch('/:scenarioId', async (c) => {
+  const user = c.get('user');
+  const parsed = parseUUID(c, 'scenarioId', 'scenario');
+  if ('error' in parsed) return parsed.error;
+  const scenarioId = parsed.id;
+
+  if (!checkRateLimit(user.id)) {
+    return tooManyRequests(c);
+  }
+
+  const result = await parseBody(c, updateSchema);
+  if ('error' in result) return result.error;
+  const data = result.data;
+
+  // Verify ownership and load agents for persona validation
+  const s = await db.query.scenario.findFirst({
+    where: eq(scenario.id, scenarioId),
+    with: {
+      course: { columns: { id: true, visibility: true, createdBy: true } },
+      agents: { columns: { personaId: true } },
+    },
+  });
+
+  if (!s) return c.json({ error: 'Scenario not found' }, 404);
+  if (s.course.createdBy !== user.id || s.course.visibility !== 'private') {
+    return c.json({ error: 'Forbidden' }, 403);
+  }
+
+  // Validate that all submitted persona IDs belong to this scenario
+  const validPersonaIds = new Set(s.agents.map((a) => a.personaId));
+  if (data.students) {
+    for (const student of data.students) {
+      if (!validPersonaIds.has(student.personaId)) {
+        return c.json({ error: 'Invalid persona ID' }, 400);
+      }
+    }
+  }
+
+  try {
+    await db.transaction(async (tx) => {
+      // Update scenario
+      if (
+        data.scenarioTitle ||
+        data.scenarioDescription ||
+        data.activityContext !== undefined
+      ) {
+        const scenarioUpdate: Record<string, unknown> = {};
+        if (data.scenarioTitle) scenarioUpdate.title = data.scenarioTitle;
+        if (data.scenarioDescription)
+          scenarioUpdate.description = data.scenarioDescription;
+        if (data.activityContext !== undefined)
+          scenarioUpdate.activityContext = data.activityContext || null;
+        await tx
+          .update(scenario)
+          .set(scenarioUpdate)
+          .where(eq(scenario.id, scenarioId));
+      }
+
+      // Update course metadata (title mirrors scenario for user-created)
+      const courseUpdate: Record<string, unknown> = {};
+      if (data.scenarioTitle) courseUpdate.title = data.scenarioTitle;
+      if (data.scenarioDescription)
+        courseUpdate.description = data.scenarioDescription;
+      if (data.subject) courseUpdate.subject = data.subject;
+      if (data.gradeLevel) courseUpdate.gradeLevel = data.gradeLevel;
+      if (Object.keys(courseUpdate).length > 0) {
+        await tx
+          .update(course)
+          .set(courseUpdate)
+          .where(eq(course.id, s.course.id));
+      }
+
+      // Update students (personas + agents)
+      if (data.students) {
+        for (const student of data.students) {
+          await tx
+            .update(persona)
+            .set({
+              name: student.name,
+              description: student.description,
+              systemPrompt: student.systemPrompt,
+            })
+            .where(eq(persona.id, student.personaId));
+
+          await tx
+            .update(scenarioAgent)
+            .set({ openingMessage: student.openingMessage })
+            .where(
+              and(
+                eq(scenarioAgent.scenarioId, scenarioId),
+                eq(scenarioAgent.personaId, student.personaId),
+              ),
+            );
+        }
+      }
+    });
+
+    clearAgentCache();
+    return c.json({ success: true });
+  } catch (err) {
+    log.error(
+      { userId: user.id, error: err instanceof Error ? err.message : err },
+      'Failed to update scenario',
+    );
+    return c.json({ error: 'Failed to update scenario' }, 500);
   }
 });

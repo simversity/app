@@ -42,6 +42,28 @@ export const AGENT_CACHE_TTL_MS = 5 * 60 * 1000;
 /** Maximum number of entries in the agent cache LRU. */
 export const MAX_CACHE_SIZE = 200;
 
+/** Document types uploaded to NEAR AI Files API. */
+export const ALLOWED_DOCUMENT_TYPES = new Set([
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/msword',
+  'application/json',
+  'text/plain',
+  'text/markdown',
+  'text/csv',
+]);
+
+/** Image types sent as base64 data URIs in chat messages. */
+export const ALLOWED_IMAGE_TYPES = new Set([
+  'image/png',
+  'image/jpeg',
+  'image/gif',
+  'image/webp',
+]);
+
+export const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
+export const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5MB
+
 /** User-facing error messages shared across routes. */
 export const ErrorMessage = {
   STUDENT_TROUBLE:

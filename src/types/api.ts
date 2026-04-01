@@ -22,6 +22,8 @@ export type Course = {
 
 export type CourseDetail = Course & {
   scenarios: Scenario[];
+  visibility?: string;
+  createdBy?: string;
 };
 
 export type CourseVisibility = 'private' | 'shared' | 'published' | 'archived';
@@ -180,6 +182,18 @@ export type RecentConversation = {
   messageCount: number;
   status: ConversationStatus;
   startedAt: string;
+};
+
+// --- File uploads ---
+
+export type UploadedFile = {
+  id: string;
+  originalName: string;
+  mimeType: string;
+  sizeBytes: number;
+  description: string | null;
+  nearaiFileId: string | null;
+  createdAt: string;
 };
 
 // --- Model info ---

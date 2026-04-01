@@ -5,12 +5,15 @@
 
 /** Typed API error with HTTP status code. */
 export class ApiError extends Error {
+  retryAfter?: number;
   constructor(
     message: string,
     public status: number,
+    retryAfter?: number,
   ) {
     super(message);
     this.name = 'ApiError';
+    this.retryAfter = retryAfter;
   }
 }
 
@@ -18,9 +21,14 @@ export class ApiError extends Error {
 async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
+    const retryAfter =
+      res.status === 429
+        ? Number.parseInt(res.headers.get('Retry-After') ?? '', 10) || undefined
+        : undefined;
     throw new ApiError(
       data.error || `Request failed: ${res.status}`,
       res.status,
+      retryAfter,
     );
   }
   if (
@@ -35,6 +43,20 @@ async function handleResponse<T>(res: Response): Promise<T> {
 /** Fetch JSON from an API endpoint with credentials and abort support. */
 export async function apiFetch<T>(url: string, opts?: RequestInit): Promise<T> {
   const res = await fetch(url, { credentials: 'include', ...opts });
+  return handleResponse<T>(res);
+}
+
+/** Upload a file via multipart/form-data. */
+export async function apiUpload<T>(
+  url: string,
+  formData: FormData,
+): Promise<T> {
+  const res = await fetch(url, {
+    credentials: 'include',
+    method: 'POST',
+    body: formData,
+    // No Content-Type header — browser sets multipart boundary automatically
+  });
   return handleResponse<T>(res);
 }
 

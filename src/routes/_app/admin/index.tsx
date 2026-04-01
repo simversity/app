@@ -1,11 +1,20 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute, Link } from '@tanstack/react-router';
-import { BookOpen, KeyRound, Plus, Users } from 'lucide-react';
+import {
+  Archive,
+  BookOpen,
+  KeyRound,
+  Plus,
+  RotateCcw,
+  Users,
+} from 'lucide-react';
+import { useState } from 'react';
+import { toast } from 'sonner';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { usePageTitle } from '@/hooks/usePageTitle';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, apiMutate } from '@/lib/api';
 import { useTypedSession } from '@/lib/auth-client';
 import { queryKeys } from '@/lib/query-keys';
 import { isAdmin } from '@/lib/utils';
@@ -18,12 +27,35 @@ export const Route = createFileRoute('/_app/admin/')({
 function AdminDashboard() {
   const { data: session } = useTypedSession();
   const role = session?.user?.role;
+  const queryClient = useQueryClient();
   const { data, isPending, error } = useQuery({
     queryKey: queryKeys.adminCourses,
     queryFn: () => apiFetch<{ courses: AdminCourse[] }>('/api/admin/courses'),
     enabled: isAdmin(role),
   });
-  const courses = data?.courses ?? [];
+
+  const activeCourses =
+    data?.courses?.filter((c) => c.visibility !== 'archived') ?? [];
+  const archivedCourses =
+    data?.courses?.filter((c) => c.visibility === 'archived') ?? [];
+
+  const [showArchived, setShowArchived] = useState(false);
+
+  const restoreMutation = useMutation({
+    mutationFn: (courseId: string) =>
+      apiMutate(`/api/admin/courses/${courseId}`, {
+        method: 'PATCH',
+        body: { visibility: 'private' },
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.adminCourses });
+      queryClient.invalidateQueries({ queryKey: queryKeys.courses });
+      toast.success('Course restored');
+    },
+    onError: () => {
+      toast.error('Failed to restore course. Please try again.');
+    },
+  });
 
   usePageTitle('Admin');
 
@@ -72,7 +104,7 @@ function AdminDashboard() {
         </Alert>
       )}
 
-      {/* Courses */}
+      {/* Active Courses */}
       <div className="mt-8">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold">Courses</h2>
@@ -88,7 +120,7 @@ function AdminDashboard() {
           <div className="mt-6 flex justify-center">
             <Spinner className="size-8" />
           </div>
-        ) : courses.length === 0 ? (
+        ) : activeCourses.length === 0 ? (
           <div className="mt-6 rounded-lg border border-dashed border-border p-8 text-center">
             <BookOpen className="mx-auto h-8 w-8 text-muted-foreground/50" />
             <p className="mt-2 text-sm text-muted-foreground">No courses yet</p>
@@ -98,7 +130,7 @@ function AdminDashboard() {
           </div>
         ) : (
           <div className="mt-4 space-y-3">
-            {courses.map((c) => (
+            {activeCourses.map((c) => (
               <Link
                 key={c.id}
                 to="/admin/courses/$courseId"
@@ -125,6 +157,59 @@ function AdminDashboard() {
           </div>
         )}
       </div>
+
+      {/* Archived Courses */}
+      {archivedCourses.length > 0 && (
+        <div className="mt-8">
+          <button
+            type="button"
+            className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+            onClick={() => setShowArchived(!showArchived)}
+          >
+            <Archive className="h-4 w-4" />
+            Archived ({archivedCourses.length})
+            <span className="text-xs">{showArchived ? '▼' : '▶'}</span>
+          </button>
+
+          {showArchived && (
+            <div className="mt-3 space-y-3">
+              {archivedCourses.map((c) => (
+                <div
+                  key={c.id}
+                  className="flex items-center justify-between rounded-lg border border-border bg-muted/30 p-4"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="rounded-lg bg-muted p-2">
+                      <BookOpen className="h-4 w-4 text-muted-foreground" />
+                    </div>
+                    <div>
+                      <p className="font-medium text-muted-foreground">
+                        {c.title}
+                      </p>
+                      <p className="text-xs text-muted-foreground/60">
+                        {c.scenarioCount} scenario
+                        {c.scenarioCount !== 1 ? 's' : ''} · {c.subject}
+                      </p>
+                    </div>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={
+                      restoreMutation.isPending &&
+                      restoreMutation.variables === c.id
+                    }
+                    onClick={() => restoreMutation.mutate(c.id)}
+                  >
+                    <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+                    Restore
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

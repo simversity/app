@@ -19,6 +19,7 @@ import { auditLog } from './lib/audit';
 import {
   env,
   MAX_MESSAGE_CHARS,
+  MAX_MESSAGES_PER_CONVERSATION,
   MIN_MESSAGES_TO_COMPLETE,
   RATE_LIMIT_AUTH,
   RATE_LIMIT_CLAIM_ROLE,
@@ -27,11 +28,14 @@ import {
 import { log } from './lib/logger';
 import { createRateLimiter, setRateLimitHeaders } from './lib/rate-limit';
 import { getClientIp } from './lib/request';
+import { tooManyRequests } from './lib/responses';
 import { initGracefulShutdown, isShuttingDown } from './lib/shutdown';
 import type { AppEnv } from './lib/types';
 import { parseBody } from './lib/validation';
-import { requireAuth } from './middleware/auth';
+import { requireAuth, requireVerified } from './middleware/auth';
 import { adminRoutes } from './routes/admin';
+import { fileContentRoutes } from './routes/admin/files';
+import { budgetRoutes } from './routes/budget';
 import { conversationRoutes } from './routes/conversations';
 import { courseRoutes } from './routes/courses';
 import { modelRoutes } from './routes/models';
@@ -87,8 +91,14 @@ app.use(
 // its own body, so we use a separate middleware); all other API routes get 1MB.
 const apiBodyLimit = bodyLimit({ maxSize: 1024 * 1024 }); // 1MB
 const authBodyLimit = bodyLimit({ maxSize: 256 * 1024 }); // 256KB
+const uploadBodyLimit = bodyLimit({ maxSize: 50 * 1024 * 1024 }); // 50MB for file uploads
+/** Matches file-upload routes that need a larger body limit. */
+const FILE_UPLOAD_PATH =
+  /\/api\/(admin\/(courses|scenarios)|conversations)\/[^/]+\/files/;
 app.use('/api/*', async (c, next) => {
   if (c.req.path.startsWith('/api/auth/')) return authBodyLimit(c, next);
+  if (c.req.method === 'POST' && FILE_UPLOAD_PATH.test(c.req.path))
+    return uploadBodyLimit(c, next);
   return apiBodyLimit(c, next);
 });
 
@@ -106,10 +116,7 @@ app.use('/api/*', async (c, next) => {
   const ip = getClientIp(c);
   if (!checkReadRate(ip)) {
     setRateLimitHeaders(c, checkReadRate.info(ip));
-    return c.json(
-      { error: 'Too many requests. Please wait a moment and try again.' },
-      429,
-    );
+    return tooManyRequests(c);
   }
   setRateLimitHeaders(c, checkReadRate.info(ip));
   return next();
@@ -120,10 +127,7 @@ app.all('/api/auth/*', (c) => {
   if (c.req.method === 'POST') {
     const ip = getClientIp(c);
     if (!checkAuthRate(ip)) {
-      return c.json(
-        { error: 'Too many requests. Please try again later.' },
-        429,
-      );
+      return tooManyRequests(c);
     }
   }
   return auth.handler(c.req.raw);
@@ -132,9 +136,13 @@ app.route('/api/courses', courseRoutes);
 app.route('/api/conversations', conversationRoutes);
 app.route('/api/progress', progressRoutes);
 app.route('/api/admin', adminRoutes);
+app.use('/api/files/*', requireVerified);
+app.route('/api/files', fileContentRoutes);
 app.route('/api/models', modelRoutes);
 app.route('/api/user', userRoutes);
 app.route('/api/scenario-builder', scenarioBuilderRoutes);
+app.use('/api/budget/*', requireVerified);
+app.route('/api/budget', budgetRoutes);
 
 // API documentation (Scalar UI + raw OpenAPI spec)
 const openapiSpec = readFileSync(
@@ -162,6 +170,7 @@ app.get('/api/config/registration', (c) => {
 app.get('/api/config/app', (c) => {
   return c.json({
     maxMessageChars: MAX_MESSAGE_CHARS,
+    maxMessagesPerConversation: MAX_MESSAGES_PER_CONVERSATION,
     minMessagesToComplete: MIN_MESSAGES_TO_COMPLETE,
   });
 });
@@ -186,10 +195,7 @@ app.post('/api/claim-role', requireAuth, async (c) => {
       { reason: 'rate_limited' },
       c.get('requestId'),
     );
-    return c.json(
-      { error: 'Too many requests. Please wait a moment and try again.' },
-      429,
-    );
+    return tooManyRequests(c);
   }
 
   const parsed = await parseBody(c, claimRoleSchema);

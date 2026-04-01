@@ -1,4 +1,5 @@
 export const queryKeys = {
+  appConfig: ['config', 'app'] as const,
   dashboard: ['dashboard'] as const,
   courses: ['courses'] as const,
   course: (id: string) => ['courses', id] as const,
@@ -12,6 +13,17 @@ export const queryKeys = {
   persona: (id: string) => ['personas', id] as const,
   models: ['models'] as const,
   profile: ['profile'] as const,
+  courseFiles: (courseId: string) =>
+    ['admin', 'courses', courseId, 'files'] as const,
+  scenarioFiles: (scenarioId: string) =>
+    ['admin', 'scenarios', scenarioId, 'files'] as const,
+  conversationFiles: (conversationId: string) =>
+    ['conversations', conversationId, 'files'] as const,
+  scenarioBuilder: (id: string) => ['scenario-builder', id] as const,
   accessCodes: ['access-codes'] as const,
   users: ['users'] as const,
+  budgetStatus: ['budget', 'status'] as const,
+  conversationList: (params?: Record<string, string | number>) =>
+    ['conversations', 'list', params] as const,
+  progress: ['progress'] as const,
 };

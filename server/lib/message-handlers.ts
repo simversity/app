@@ -1,7 +1,9 @@
 import type { SSEStreamingApi } from 'hono/streaming';
+import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 import { openai } from '../ai/client';
 import { getContextLimit } from '../ai/models';
 import { buildNudgePrompt } from '../ai/prompts';
+import { STUDENT_TOOLS } from '../ai/tools';
 import type { db } from '../db';
 import { callAIWithRetry } from './ai-helpers';
 import {
@@ -13,6 +15,8 @@ import {
 import type { LoadedAgent } from './conversation-helpers';
 import { buildAgentChatMessages } from './conversation-helpers';
 import { env } from './env';
+import type { FileRef } from './file-context';
+import { attachFiles } from './file-context';
 import { log } from './logger';
 import { checkDailyBudget } from './shared-budgets';
 import { streamAndSaveAIResponse } from './streaming';
@@ -27,25 +31,43 @@ export interface ConversationContext {
   resolvedModel: string;
 }
 
+type ChatMessage = {
+  role: 'system' | 'user' | 'assistant' | string;
+  content: string | { type: string; [key: string]: unknown }[];
+};
+
 /** Stream a single-agent AI response and save it. */
 export async function handleSingleAgentResponse(
   ctx: ConversationContext & {
     stream: SSEStreamingApi;
-    chatMessages: {
-      role: 'system' | 'user' | 'assistant';
-      content: string;
-    }[];
+    chatMessages: ChatMessage[];
     teacherSortOrder: number;
     agentPersonaId: string | null;
     agentPersonaName: string;
     afterSave: (tx: Tx) => Promise<void>;
+    fileRefs?: FileRef[];
   },
 ) {
-  const budget = checkDailyBudget;
   const trimmedMessages = trimMessagesToFit(
     ctx.chatMessages,
     getContextLimit(ctx.resolvedModel) - env.NEARAI_MAX_TOKENS,
   );
+
+  // Inject file references AFTER trimming so they are never dropped.
+  // TODO(file-tokens): Base64 image data URIs (up to 5MB each via MAX_IMAGE_SIZE)
+  // are injected here without accounting for their token cost. Multiple large
+  // images could push the total payload past the model's context window, causing
+  // an API error. A correct fix requires knowing the model's vision token pricing
+  // (which varies by provider/model) to reserve space in the trim budget. For now,
+  // the practical limit is bounded by the 5MB-per-image cap and typical scenario
+  // usage (1-3 images).
+  const finalMessages =
+    ctx.fileRefs && ctx.fileRefs.length > 0
+      ? attachFiles(
+          trimmedMessages as { role: string; content: string }[],
+          ctx.fileRefs,
+        )
+      : trimmedMessages;
 
   const abortController = new AbortController();
   ctx.stream.onAbort(() => abortController.abort());
@@ -56,7 +78,9 @@ export async function handleSingleAgentResponse(
         {
           model: ctx.resolvedModel,
           max_tokens: env.NEARAI_MAX_TOKENS,
-          messages: trimmedMessages,
+          messages: finalMessages as ChatCompletionMessageParam[],
+          tools: STUDENT_TOOLS,
+          tool_choice: 'auto',
           stream: true as const,
         },
         { signal: abortController.signal },
@@ -71,7 +95,7 @@ export async function handleSingleAgentResponse(
     },
   );
   if (!aiStream) {
-    budget?.release(ctx.userId);
+    checkDailyBudget.release(ctx.userId);
     return;
   }
 
@@ -91,8 +115,14 @@ export async function handleSingleAgentResponse(
     },
     abortController,
     userId: ctx.userId,
-    onAIFailure: budget ? () => budget.release(ctx.userId) : undefined,
+    onAIFailure: () => checkDailyBudget.release(ctx.userId),
     afterSave: ctx.afterSave,
+    toolContinuation: {
+      model: ctx.resolvedModel,
+      messages: finalMessages as unknown as Record<string, unknown>[],
+      tools: STUDENT_TOOLS,
+      maxTokens: env.NEARAI_MAX_TOKENS,
+    },
   });
 }
 
@@ -111,12 +141,12 @@ export async function handleMultiAgentResponse(
     activityContext?: string | null;
     teacherSortOrder: number;
     afterSave: (tx: Tx) => Promise<void>;
+    fileRefs?: FileRef[];
   },
 ): Promise<{
   turnResponses: { role: 'assistant'; content: string; agentId: string }[];
   nextSortOrder: number;
 }> {
-  const budget = checkDailyBudget;
   const abortController = new AbortController();
   ctx.stream.onAbort(() => abortController.abort());
 
@@ -133,7 +163,7 @@ export async function handleMultiAgentResponse(
     const agent = ctx.respondingAgents[i];
     const isLast = i === ctx.respondingAgents.length - 1;
 
-    const agentMessages = buildAgentChatMessages({
+    const rawAgentMessages = buildAgentChatMessages({
       agent,
       agents: ctx.agents,
       recentMessages: ctx.recentMessages,
@@ -147,16 +177,29 @@ export async function handleMultiAgentResponse(
       env.NEARAI_MAX_TOKENS,
     );
     const trimmedAgentMessages = trimMessagesToFit(
-      agentMessages,
+      rawAgentMessages,
       getContextLimit(ctx.resolvedModel) - agentMaxTokens,
     );
+
+    // Inject file references AFTER trimming so they are never dropped.
+    // TODO(file-tokens): Same caveat as single-agent path — see above.
+    const fileRefs = ctx.fileRefs ?? [];
+    const finalAgentMessages =
+      fileRefs.length > 0
+        ? attachFiles(
+            trimmedAgentMessages as { role: string; content: string }[],
+            fileRefs,
+          )
+        : trimmedAgentMessages;
 
     const createStream = () =>
       openai.chat.completions.create(
         {
           model: ctx.resolvedModel,
           max_tokens: agentMaxTokens,
-          messages: trimmedAgentMessages,
+          messages: finalAgentMessages as ChatCompletionMessageParam[],
+          tools: STUDENT_TOOLS,
+          tool_choice: 'auto',
           stream: true as const,
         },
         { signal: abortController.signal },
@@ -175,7 +218,7 @@ export async function handleMultiAgentResponse(
       logLabel: 'AI call failed for agent',
     });
     if (!aiStream) {
-      budget?.release(ctx.userId);
+      checkDailyBudget.release(ctx.userId);
       return { turnResponses, nextSortOrder };
     }
 
@@ -197,11 +240,17 @@ export async function handleMultiAgentResponse(
       },
       abortController,
       userId: ctx.userId,
-      onAIFailure: budget ? () => budget.release(ctx.userId) : undefined,
+      onAIFailure: () => checkDailyBudget.release(ctx.userId),
       onComplete: (fullText) => {
         capturedText = fullText;
       },
       afterSave: isLast ? ctx.afterSave : undefined,
+      toolContinuation: {
+        model: ctx.resolvedModel,
+        messages: finalAgentMessages as unknown as Record<string, unknown>[],
+        tools: STUDENT_TOOLS,
+        maxTokens: agentMaxTokens,
+      },
     });
 
     if (!capturedText || ctx.stream.aborted)

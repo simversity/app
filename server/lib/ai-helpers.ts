@@ -1,11 +1,6 @@
 import type { SSEStreamingApi } from 'hono/streaming';
-import type { OpenAI } from 'openai';
 import { log } from './logger';
 import { withRetry } from './retry';
-
-type CreateStreamFn = () => Promise<
-  AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>
->;
 
 /** Classify an AI error into a category for user-facing messages. */
 function classifyError(err: unknown): 'timeout' | 'rate_limited' | 'generic' {
@@ -21,8 +16,8 @@ function classifyError(err: unknown): 'timeout' | 'rate_limited' | 'generic' {
  * and SSE error writing. Returns the stream on success or writes an error
  * SSE event and returns null.
  */
-export async function callAIWithRetry(
-  createStream: CreateStreamFn,
+export async function callAIWithRetry<T>(
+  createStream: () => Promise<AsyncIterable<T>>,
   opts: {
     stream: SSEStreamingApi;
     errorMessage: string;
@@ -31,7 +26,7 @@ export async function callAIWithRetry(
     logContext: Record<string, unknown>;
     logLabel: string;
   },
-): Promise<Awaited<ReturnType<CreateStreamFn>> | null> {
+): Promise<AsyncIterable<T> | null> {
   try {
     return await withRetry(createStream);
   } catch (err) {

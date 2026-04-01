@@ -1,5 +1,16 @@
 import { Link, useLocation, useMatchRoute } from '@tanstack/react-router';
-import { BookOpen, LayoutDashboard, Settings, User, X } from 'lucide-react';
+import {
+  BookOpen,
+  History,
+  LayoutDashboard,
+  Moon,
+  Settings,
+  Sun,
+  User,
+  X,
+} from 'lucide-react';
+import { useTheme } from 'next-themes';
+import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { useTypedSession } from '@/lib/auth-client';
 import { APP_NAME } from '@/lib/constants';
@@ -8,6 +19,7 @@ import { isAdmin as checkAdmin, cn } from '@/lib/utils';
 const navItems = [
   { to: '/dashboard' as const, label: 'Dashboard', icon: LayoutDashboard },
   { to: '/courses' as const, label: 'Courses', icon: BookOpen },
+  { to: '/conversations' as const, label: 'History', icon: History },
   { to: '/profile' as const, label: 'Profile', icon: User },
 ];
 
@@ -40,7 +52,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
 
       <aside
         className={cn(
-          'fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-sidebar-border bg-sidebar-background transition-transform duration-200 lg:static lg:translate-x-0',
+          'fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-sidebar-border bg-sidebar-background transition-transform duration-200 motion-reduce:transition-none lg:static lg:translate-x-0',
           open ? 'translate-x-0' : '-translate-x-full',
         )}
       >
@@ -122,12 +134,36 @@ export function Sidebar({ open, onClose }: SidebarProps) {
         </nav>
 
         {/* Footer */}
-        <div className="border-t border-sidebar-border px-4 py-3">
+        <div className="flex items-center justify-between border-t border-sidebar-border px-4 py-3">
           <p className="text-xs text-muted-foreground">
             Practice makes progress
           </p>
+          <ThemeToggle />
         </div>
       </aside>
     </>
+  );
+}
+
+function ThemeToggle() {
+  const { resolvedTheme, setTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  if (!mounted) return null;
+
+  return (
+    <Button
+      variant="ghost"
+      size="icon-xs"
+      onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
+      aria-label={`Switch to ${resolvedTheme === 'dark' ? 'light' : 'dark'} mode`}
+      className="text-sidebar-foreground/60 hover:bg-sidebar-accent"
+    >
+      {resolvedTheme === 'dark' ? (
+        <Sun className="h-3.5 w-3.5" />
+      ) : (
+        <Moon className="h-3.5 w-3.5" />
+      )}
+    </Button>
   );
 }

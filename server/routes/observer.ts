@@ -1,10 +1,12 @@
 import { desc, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
+import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 import { z } from 'zod';
 import { openai } from '../ai/client';
 import { getContextLimit } from '../ai/models';
 import { buildObserverContext, escapeXml } from '../ai/prompts';
+import { OBSERVER_TOOLS } from '../ai/tools';
 import { db } from '../db';
 import { conversation, message, observerMessage, persona } from '../db/schema';
 import { callAIWithRetry } from '../lib/ai-helpers';
@@ -24,9 +26,11 @@ import {
   POST_CONVERSATION_MAX_TOKENS,
   RATE_LIMIT_OBSERVER,
 } from '../lib/env';
+import { attachFiles, loadFileRefs } from '../lib/file-context';
 import { log } from '../lib/logger';
 import { isModelAllowed } from '../lib/model-check';
 import { createRateLimiter } from '../lib/rate-limit';
+import { dailyLimitReached, tooManyRequests } from '../lib/responses';
 import { checkDailyBudget } from '../lib/shared-budgets';
 import { canAcceptStream } from '../lib/shutdown';
 import { saveUserMessage, streamAndSaveAIResponse } from '../lib/streaming';
@@ -65,19 +69,11 @@ observerRoutes.get('/', async (c) => {
 
 observerRoutes.post('/', async (c) => {
   const user = c.get('user');
-  const budget = checkDailyBudget;
-
   if (!checkObserverRateLimit(user.id)) {
-    return c.json(
-      { error: 'Too many requests. Please wait a moment and try again.' },
-      429,
-    );
+    return tooManyRequests(c);
   }
-  if (checkDailyBudget && !checkDailyBudget(user.id)) {
-    return c.json(
-      { error: 'Daily message limit reached. Please try again tomorrow.' },
-      429,
-    );
+  if (!checkDailyBudget(user.id)) {
+    return dailyLimitReached(c);
   }
 
   let budgetConsumed = true;
@@ -200,6 +196,9 @@ observerRoutes.post('/', async (c) => {
       content: `<teacher-question>${escapeXml(content)}</teacher-question>`,
     });
 
+    // Load file references for this scenario + its parent course
+    const fileRefs = await loadFileRefs(conv.scenarioId, sc.courseId);
+
     if (!canAcceptStream(user.id)) {
       return c.json(
         { error: 'Server is at capacity. Please try again shortly.' },
@@ -242,7 +241,7 @@ observerRoutes.post('/', async (c) => {
       return c.json({ error: 'Failed to save message' }, 500);
     }
 
-    // Trim context if estimated tokens exceed a safe threshold
+    // Trim context, then attach file references (same order as chat handlers)
     const maxTokens =
       conv.status === ConversationStatus.ACTIVE
         ? Math.min(env.NEARAI_MAX_TOKENS, MID_CONVERSATION_MAX_TOKENS)
@@ -251,6 +250,10 @@ observerRoutes.post('/', async (c) => {
       chatMessages,
       getContextLimit(resolvedModel) - maxTokens,
     );
+    const finalMessages =
+      fileRefs.length > 0
+        ? attachFiles(trimmedMessages, fileRefs)
+        : trimmedMessages;
 
     // Stream the AI response
     budgetConsumed = false;
@@ -264,7 +267,9 @@ observerRoutes.post('/', async (c) => {
             {
               model: resolvedModel,
               max_tokens: maxTokens,
-              messages: trimmedMessages,
+              messages: finalMessages as ChatCompletionMessageParam[],
+              tools: OBSERVER_TOOLS,
+              tool_choice: 'auto',
               stream: true as const,
             },
             { signal: abortController.signal },
@@ -279,7 +284,7 @@ observerRoutes.post('/', async (c) => {
         },
       );
       if (!aiStream) {
-        budget?.release(user.id);
+        checkDailyBudget.release(user.id);
         return;
       }
 
@@ -294,10 +299,16 @@ observerRoutes.post('/', async (c) => {
         emptyLabel: ErrorMessage.OBSERVER_EMPTY,
         abortController,
         userId: user.id,
-        onAIFailure: budget ? () => budget.release(user.id) : undefined,
+        onAIFailure: () => checkDailyBudget.release(user.id),
+        toolContinuation: {
+          model: resolvedModel,
+          messages: finalMessages as Record<string, unknown>[],
+          tools: OBSERVER_TOOLS,
+          maxTokens,
+        },
       });
     });
   } finally {
-    if (budgetConsumed) checkDailyBudget?.release(user.id);
+    if (budgetConsumed) checkDailyBudget.release(user.id);
   }
 });

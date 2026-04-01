@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { AdminFormActions } from '@/components/admin/AdminFormActions';
 import { AdminFormShell } from '@/components/admin/AdminFormShell';
 import { MutationErrorAlert } from '@/components/admin/MutationErrorAlert';
+import { FileManager } from '@/components/FileManager';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -243,6 +244,11 @@ function CourseEditor() {
           }
         />
       </form>
+
+      {/* Files */}
+      <div className="mt-10 border-t border-border pt-8">
+        <FileManager parentType="course" parentId={courseId} />
+      </div>
 
       {/* Scenarios */}
       <div className="mt-10 border-t border-border pt-8">

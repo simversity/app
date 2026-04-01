@@ -1,26 +1,25 @@
+import { inferAdditionalFields } from 'better-auth/client/plugins';
 import { createAuthClient } from 'better-auth/react';
 
-export const authClient = createAuthClient({});
+export const authClient = createAuthClient({
+  plugins: [
+    inferAdditionalFields({
+      user: {
+        role: { type: 'string', required: false, defaultValue: 'teacher' },
+        subjects: { type: 'string', required: false },
+        experienceYears: { type: 'number', required: false },
+      },
+    }),
+  ],
+});
 
 export const { signIn, signUp, signOut, useSession } = authClient;
 
-/** Convenience type for the authenticated user (includes custom fields) */
-export type SessionUser = {
-  id: string;
-  name: string;
-  email: string;
-  emailVerified: boolean;
-  role: string;
-  image?: string | null;
-};
-
-/** Typed wrapper around useSession that casts user to SessionUser */
+/**
+ * Typed wrapper around useSession for consumers that need the `role` field.
+ * The inferAdditionalFields plugin makes role/subjects/experienceYears
+ * available on session.data.user without casting.
+ */
 export function useTypedSession() {
-  const session = useSession();
-  return {
-    ...session,
-    data: session.data
-      ? { ...session.data, user: session.data.user as unknown as SessionUser }
-      : null,
-  };
+  return useSession();
 }

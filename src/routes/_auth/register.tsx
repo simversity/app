@@ -5,8 +5,10 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { PasswordInput } from '@/components/ui/password-input';
 import { apiFetch, apiMutate } from '@/lib/api';
 import { authClient, signUp } from '@/lib/auth-client';
+import { getFormErrorMessage } from '@/lib/error-messages';
 import { isAbortError } from '@/lib/error-utils';
 
 export const Route = createFileRoute('/_auth/register')({
@@ -93,11 +95,7 @@ function Register() {
         },
       );
     } catch (err) {
-      setError(
-        err instanceof Error && err.message !== 'Failed to fetch'
-          ? err.message
-          : 'Unable to connect. Please check your network and try again.',
-      );
+      setError(getFormErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -153,9 +151,8 @@ function Register() {
 
           <div className="space-y-2">
             <Label htmlFor="password">Password</Label>
-            <Input
+            <PasswordInput
               id="password"
-              type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required

@@ -7,6 +7,11 @@ import {
 } from 'react';
 import { sendStreamingMessage } from './sse-stream';
 
+export type ToolCall = {
+  name: string;
+  arguments: Record<string, unknown>;
+};
+
 export type ChatMessage = {
   id: string;
   role: 'user' | 'assistant' | 'nudge';
@@ -14,6 +19,7 @@ export type ChatMessage = {
   isStreaming: boolean;
   agentId?: string;
   agentName?: string;
+  toolCalls?: ToolCall[];
 };
 
 export type StreamingStatus = 'idle' | 'streaming' | 'error';
@@ -40,6 +46,12 @@ export type StreamingAction =
       agentName?: string;
     }
   | { type: 'REMOVE_MESSAGE'; id: string }
+  | {
+      type: 'TOOL_CALL';
+      id: string;
+      name: string;
+      arguments: Record<string, unknown>;
+    }
   | { type: 'NUDGE'; id: string; text: string }
   | { type: 'ERROR'; message: string }
   | { type: 'CLEAR_ERROR' }
@@ -110,6 +122,20 @@ export function streamingReducer(
       };
       return { ...state, messages: updated };
     }
+    case 'TOOL_CALL': {
+      const msgs = state.messages;
+      const last = msgs[msgs.length - 1];
+      if (!last || last.id !== action.id) return state;
+      const updated = msgs.slice();
+      updated[updated.length - 1] = {
+        ...last,
+        toolCalls: [
+          ...(last.toolCalls ?? []),
+          { name: action.name, arguments: action.arguments },
+        ],
+      };
+      return { ...state, messages: updated };
+    }
     case 'STREAM_END':
       return {
         ...state,
@@ -175,16 +201,28 @@ export function mapApiMessages(
     content: string;
     agentId?: string;
     agentName?: string | null;
+    toolCalls?: string | null;
   }[],
 ): ChatMessage[] {
-  return raw.map((m) => ({
-    id: m.id,
-    role: m.role as 'user' | 'assistant',
-    content: m.content,
-    isStreaming: false,
-    agentId: m.agentId || undefined,
-    agentName: m.agentName || undefined,
-  }));
+  return raw.map((m) => {
+    let toolCalls: ToolCall[] | undefined;
+    if (m.toolCalls) {
+      try {
+        toolCalls = JSON.parse(m.toolCalls);
+      } catch {
+        // Ignore parse errors
+      }
+    }
+    return {
+      id: m.id,
+      role: m.role as 'user' | 'assistant',
+      content: m.content,
+      isStreaming: false,
+      agentId: m.agentId || undefined,
+      agentName: m.agentName || undefined,
+      toolCalls,
+    };
+  });
 }
 
 export function useStreamingChat() {

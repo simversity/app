@@ -1,10 +1,18 @@
+import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
-import { ArrowLeft } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ConversationErrorBoundary } from '@/components/ConversationErrorBoundary';
 import { ActiveConversationPhase } from '@/components/conversation/ActiveConversationPhase';
 import { ConversationHeaderActions } from '@/components/conversation/ConversationHeaderActions';
 import { PostConversationPhase } from '@/components/conversation/PostConversationPhase';
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from '@/components/ui/breadcrumb';
 import { Button } from '@/components/ui/button';
 import { useAppConfig } from '@/hooks/useAppConfig';
 import { useConversation } from '@/hooks/useConversation';
@@ -12,6 +20,8 @@ import { useObserver } from '@/hooks/useObserver';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { apiFetch, apiMutate } from '@/lib/api';
 import { isAbortError } from '@/lib/error-utils';
+import { queryKeys } from '@/lib/query-keys';
+import type { CourseDetail } from '@/types/api';
 
 export const Route = createFileRoute(
   '/_app/courses/$courseId/conversation/$scenarioId',
@@ -48,23 +58,21 @@ function ConversationPage() {
       : (scenarioInfo?.title ?? 'Conversation'),
   );
 
+  // Use cached course data for breadcrumb and scenario info
+  const { data: courseData } = useQuery({
+    queryKey: queryKeys.course(courseId),
+    queryFn: () => apiFetch<CourseDetail>(`/api/courses/${courseId}`),
+    staleTime: 5 * 60_000,
+  });
+
   useEffect(() => {
-    const controller = new AbortController();
-    apiFetch<{
-      scenarios?: { id: string; title: string; studentName: string }[];
-    }>(`/api/courses/${courseId}`, { signal: controller.signal })
-      .then((course) => {
-        const s = course.scenarios?.find((s) => s.id === scenarioId);
-        if (s) {
-          setScenarioInfo({ title: s.title, studentName: s.studentName });
-        }
-      })
-      .catch((err) => {
-        if (isAbortError(err)) return;
-        setScenarioInfo({ title: 'Conversation', studentName: 'Student' });
-      });
-    return () => controller.abort();
-  }, [courseId, scenarioId]);
+    if (courseData) {
+      const s = courseData.scenarios?.find((s) => s.id === scenarioId);
+      if (s) {
+        setScenarioInfo({ title: s.title, studentName: s.studentName });
+      }
+    }
+  }, [courseData, scenarioId]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -117,23 +125,34 @@ function ConversationPage() {
     <ConversationErrorBoundary key={scenarioId} onReset={conv.restart}>
       <div className="fixed inset-0 z-50 flex flex-col bg-background">
         <header className="flex items-center gap-3 border-b border-border px-4 py-3">
-          <Button variant="ghost" size="icon" asChild>
-            <Link
-              to="/courses/$courseId"
-              params={{ courseId }}
-              aria-label="Back to course"
-            >
-              <ArrowLeft className="h-5 w-5" />
-            </Link>
-          </Button>
           <div className="flex-1 min-w-0">
-            <h1 className="truncate text-sm font-semibold">
-              {phase === 'post-conversation'
-                ? 'Observer Feedback'
-                : scenarioInfo?.title || 'Loading...'}
-            </h1>
+            <Breadcrumb>
+              <BreadcrumbList>
+                <BreadcrumbItem>
+                  <BreadcrumbLink asChild>
+                    <Link to="/courses">Courses</Link>
+                  </BreadcrumbLink>
+                </BreadcrumbItem>
+                <BreadcrumbSeparator />
+                <BreadcrumbItem>
+                  <BreadcrumbLink asChild>
+                    <Link to="/courses/$courseId" params={{ courseId }}>
+                      {courseData?.title ?? 'Course'}
+                    </Link>
+                  </BreadcrumbLink>
+                </BreadcrumbItem>
+                <BreadcrumbSeparator />
+                <BreadcrumbItem>
+                  <BreadcrumbPage>
+                    {phase === 'post-conversation'
+                      ? 'Observer Feedback'
+                      : scenarioInfo?.title || 'Loading...'}
+                  </BreadcrumbPage>
+                </BreadcrumbItem>
+              </BreadcrumbList>
+            </Breadcrumb>
             {phase === 'conversation' && scenarioInfo && (
-              <p className="text-xs text-muted-foreground">
+              <p className="mt-0.5 text-xs text-muted-foreground">
                 {scenarioInfo.studentName}
               </p>
             )}
@@ -171,7 +190,13 @@ function ConversationPage() {
 
         <div className="flex flex-1 overflow-hidden">
           {phase === 'post-conversation' && (
-            <PostConversationPhase observer={observer} />
+            <PostConversationPhase
+              observer={observer}
+              scenarioTitle={scenarioInfo?.title}
+              studentName={scenarioInfo?.studentName}
+              conversationMessages={conv.messages}
+              conversationDate={new Date().toISOString()}
+            />
           )}
 
           {phase === 'conversation' && (

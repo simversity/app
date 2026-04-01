@@ -113,10 +113,25 @@ function VerifyEmail() {
           </Button>
         </div>
 
-        <p className="text-center text-xs text-muted-foreground">
-          Didn&apos;t receive the email? Check your spam folder or try
-          resending.
-        </p>
+        <div className="space-y-2 text-center text-xs text-muted-foreground">
+          <p>
+            Check your spam or promotions folder if you don&apos;t see it in
+            your inbox.
+          </p>
+          <p>
+            Wrong email?{' '}
+            <button
+              type="button"
+              className="font-medium text-primary underline-offset-4 hover:underline"
+              onClick={async () => {
+                await signOut();
+                navigate({ to: '/register' });
+              }}
+            >
+              Sign up again
+            </button>
+          </p>
+        </div>
       </div>
     </div>
   );

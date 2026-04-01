@@ -21,12 +21,28 @@ export function estimateTokens(text: string): number {
  *
  * Returns the (potentially trimmed) message array.
  */
-export function trimMessagesToFit<T extends { role: string; content: string }>(
-  messages: T[],
-  maxTokens: number,
-): T[] {
+function contentToString(
+  content: string | { type: string; [key: string]: unknown }[],
+): string {
+  if (typeof content === 'string') return content;
+  // For multipart content, only estimate text parts — file refs add minimal overhead
+  return content
+    .filter(
+      (p): p is { type: 'text'; text: string } =>
+        p.type === 'text' && typeof p.text === 'string',
+    )
+    .map((p) => p.text)
+    .join('\n');
+}
+
+export function trimMessagesToFit<
+  T extends {
+    role: string;
+    content: string | { type: string; [key: string]: unknown }[];
+  },
+>(messages: T[], maxTokens: number): T[] {
   // Count tokens once per message and cache the results
-  const costs = messages.map((m) => estimateTokens(m.content));
+  const costs = messages.map((m) => estimateTokens(contentToString(m.content)));
   let total = 0;
   for (const c of costs) total += c;
 

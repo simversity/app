@@ -5,6 +5,7 @@ import { conversation, message, scenario } from '../db/schema';
 import type { LoadedAgent } from './agent-cache';
 import { loadScenarioAgents } from './agent-cache';
 import { env, MAX_CONTEXT_MESSAGES } from './env';
+import { loadFileRefs } from './file-context';
 import { log } from './logger';
 import { isModelAllowed } from './model-check';
 
@@ -204,6 +205,9 @@ export async function buildChatContext(opts: {
     activityContext: sc.activityContext,
   });
 
+  // Load file references for this scenario + its parent course
+  const fileRefs = await loadFileRefs(scenarioId, sc.courseId);
+
   return {
     scenario: sc,
     resolvedModel,
@@ -213,5 +217,6 @@ export async function buildChatContext(opts: {
     agents,
     recentMessages,
     activityContext: sc.activityContext,
+    fileRefs,
   };
 }

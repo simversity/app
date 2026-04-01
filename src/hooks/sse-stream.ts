@@ -19,11 +19,18 @@ export type SSENudgeEvent = {
   text: string;
 };
 
+export type SSEToolCallEvent = {
+  type: 'tool_call';
+  name: string;
+  arguments: Record<string, unknown>;
+};
+
 type SSECallbacks = {
   onDelta: (text: string) => void;
   onDone?: (data: SSEDoneEvent) => void;
   onError?: (message: string) => void;
   onNudge?: (data: SSENudgeEvent) => void;
+  onToolCall?: (data: SSEToolCallEvent) => void;
 };
 
 /**
@@ -69,6 +76,8 @@ function processSSELine(line: string, callbacks: SSECallbacks): void {
         callbacks.onDelta(parsed.text);
       } else if (parsed.type === 'done') {
         callbacks.onDone?.(parsed);
+      } else if (parsed.type === 'tool_call') {
+        callbacks.onToolCall?.(parsed);
       } else if (parsed.type === 'observer_nudge') {
         callbacks.onNudge?.(parsed);
       } else if (parsed.type === 'error') {
@@ -196,6 +205,13 @@ export async function sendStreamingMessage(
         abortRef,
         onDelta: (text) =>
           dispatch({ type: 'STREAM_CHUNK', id: currentMsgId, text }),
+        onToolCall: (data) =>
+          dispatch({
+            type: 'TOOL_CALL',
+            id: currentMsgId,
+            name: data.name,
+            arguments: data.arguments,
+          }),
         onDone: (data) => {
           lastDoneEvent = data;
           // Finalize current agent's message

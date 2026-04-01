@@ -1,4 +1,4 @@
-import { and, eq, lt } from 'drizzle-orm';
+import { and, eq, lt, sql } from 'drizzle-orm';
 import type { BunSQLiteDatabase } from 'drizzle-orm/bun-sqlite';
 import { dailyBudget } from '../db/schema';
 import { log } from './logger';
@@ -33,65 +33,88 @@ export function createDailyBudget(maxPerDay: number, database?: DrizzleDb) {
     timer.unref();
   }
 
-  function getCount(userId: string, today: string): number {
-    if (database) {
-      try {
-        const row = database
-          .select({ count: dailyBudget.count })
-          .from(dailyBudget)
-          .where(
-            and(eq(dailyBudget.userId, userId), eq(dailyBudget.date, today)),
-          )
-          .get();
-        return row?.count ?? 0;
-      } catch (err) {
-        log.warn(
-          { userId, error: err instanceof Error ? err.message : err },
-          'Daily budget DB read failed',
-        );
-        return 0;
-      }
-    }
+  // In-memory helpers used only by the unit-test path (no database).
+  // The DB path is handled directly inside check() and release().
+  function memGetCount(userId: string, today: string): number {
     const entry = memStore?.get(userId);
     return entry?.date === today ? entry.count : 0;
   }
 
-  function setCount(userId: string, date: string, count: number): void {
-    if (database) {
-      try {
-        database
-          .insert(dailyBudget)
-          .values({ userId, date, count })
-          .onConflictDoUpdate({
-            target: [dailyBudget.userId, dailyBudget.date],
-            set: { count },
-          })
-          .run();
-      } catch (err) {
-        log.warn(
-          { userId, error: err instanceof Error ? err.message : err },
-          'Daily budget DB write failed',
-        );
-      }
-      return;
-    }
+  function memSetCount(userId: string, date: string, count: number): void {
     memStore?.set(userId, { count, date });
   }
 
   function check(userId: string): boolean {
     const today = new Date().toISOString().slice(0, 10);
-    const count = getCount(userId, today);
+
+    if (database) {
+      // Wrap read + write in a transaction so the count cannot change between
+      // the SELECT and the INSERT. Safe under SQLite's serialized-write model
+      // today; the transaction also makes this correct if we migrate to
+      // Postgres (add SELECT … FOR UPDATE there).
+      try {
+        return database.transaction((tx) => {
+          const row = tx
+            .select({ count: dailyBudget.count })
+            .from(dailyBudget)
+            .where(
+              and(eq(dailyBudget.userId, userId), eq(dailyBudget.date, today)),
+            )
+            .get();
+          const current = row?.count ?? 0;
+          if (current >= maxPerDay) return false;
+
+          tx.insert(dailyBudget)
+            .values({ userId, date: today, count: current + 1 })
+            .onConflictDoUpdate({
+              target: [dailyBudget.userId, dailyBudget.date],
+              set: { count: current + 1 },
+            })
+            .run();
+          return true;
+        });
+      } catch (err) {
+        log.error(
+          { userId, error: err instanceof Error ? err.message : err },
+          'Daily budget check failed — failing open (user not blocked)',
+        );
+        return true; // fail-open to avoid blocking users on DB errors
+      }
+    }
+
+    // In-memory fallback (unit tests)
+    const count = memGetCount(userId, today);
     if (count >= maxPerDay) return false;
-    setCount(userId, today, count + 1);
+    memSetCount(userId, today, count + 1);
     return true;
   }
 
   /** Release a budget slot (call when a counted request fails). */
   function release(userId: string): void {
     const today = new Date().toISOString().slice(0, 10);
-    const count = getCount(userId, today);
+
+    if (database) {
+      try {
+        database
+          .update(dailyBudget)
+          .set({ count: sql`MAX(${dailyBudget.count} - 1, 0)` })
+          .where(
+            and(eq(dailyBudget.userId, userId), eq(dailyBudget.date, today)),
+          )
+          .run();
+      } catch (err) {
+        log.warn(
+          { userId, error: err instanceof Error ? err.message : err },
+          'Daily budget release failed',
+        );
+      }
+      return;
+    }
+
+    // In-memory fallback (unit tests)
+    const count = memGetCount(userId, today);
     if (count > 0) {
-      setCount(userId, today, count - 1);
+      memSetCount(userId, today, count - 1);
     }
   }
 
