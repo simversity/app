@@ -116,7 +116,7 @@ jobs:
           echo "env_name=${{ steps.env-setup.outputs.env_name }}" >> "$GITHUB_OUTPUT"
 
       - name: Comment on PR
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const marker = '<!-- railway-preview-bot -->';
@@ -176,7 +176,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Comment that preview was skipped
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const marker = '<!-- railway-preview-bot -->';
@@ -232,7 +232,7 @@ jobs:
           }
 
       - name: Update PR comment
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const marker = '<!-- railway-preview-bot -->';
